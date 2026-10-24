@@ -1,0 +1,15 @@
+{
+  "commandId": "20261104-101500-before-fix-a1b2-1",
+  "commandName": "mark",
+  "file": null,
+  "formatVersion": 1,
+  "kind": "mark",
+  "markId": "5c1e0a2b-m1",
+  "message": null,
+  "ok": true,
+  "runId": "5C1E0A2B-7D4F-4B8A-9E61-0F3D2C1B0A99",
+  "seq": 1,
+  "snapshotId": "5c1e0a2b-0001",
+  "time": "2026-11-04T10:15:12.500Z",
+  "via": "notification"
+}

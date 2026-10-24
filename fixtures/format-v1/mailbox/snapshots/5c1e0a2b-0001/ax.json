@@ -1,0 +1,70 @@
+{
+  "formatVersion": 1,
+  "limit": 5000,
+  "nodes": 3,
+  "truncated": false,
+  "windows": [
+    {
+      "frame": {
+        "h": 844,
+        "w": 390,
+        "x": 0,
+        "y": 0
+      },
+      "index": 0,
+      "isKey": true,
+      "number": null,
+      "root": {
+        "children": [
+          {
+            "children": [],
+            "frame": {
+              "h": 22,
+              "w": 200,
+              "x": 20,
+              "y": 160
+            },
+            "label": {
+              "length": 11,
+              "sha256_8": "81602ebb"
+            },
+            "source": "uikit.element",
+            "traits": [
+              "staticText"
+            ],
+            "type": "SwiftUI.AccessibilityNode"
+          },
+          {
+            "children": [],
+            "frame": {
+              "h": 22,
+              "w": 60,
+              "x": 300,
+              "y": 160
+            },
+            "id": "pinnedBadge",
+            "label": {
+              "length": 6,
+              "sha256_8": "f20c8794"
+            },
+            "source": "uikit.element",
+            "traits": [
+              "staticText"
+            ],
+            "type": "SwiftUI.AccessibilityNode"
+          }
+        ],
+        "frame": {
+          "h": 844,
+          "w": 390,
+          "x": 0,
+          "y": 0
+        },
+        "source": "uikit.view",
+        "traits": [],
+        "type": "UIWindow"
+      },
+      "title": null
+    }
+  ]
+}

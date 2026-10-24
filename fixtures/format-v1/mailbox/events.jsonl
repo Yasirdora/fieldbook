@@ -1,0 +1,12 @@
+{"formatVersion":1,"kind":"lifecycle","lifecycle":{"state":"active"},"runId":"5C1E0A2B-7D4F-4B8A-9E61-0F3D2C1B0A99","seq":1,"time":"2026-11-04T10:15:00.390Z"}
+{"formatVersion":1,"kind":"launch","launch":{"ms":391},"runId":"5C1E0A2B-7D4F-4B8A-9E61-0F3D2C1B0A99","seq":2,"time":"2026-11-04T10:15:00.391Z"}
+{"formatVersion":1,"kind":"memory","memory":{"footprint":52428800,"peak":52428800},"runId":"5C1E0A2B-7D4F-4B8A-9E61-0F3D2C1B0A99","seq":3,"time":"2026-11-04T10:15:02.000Z"}
+{"formatVersion":1,"kind":"log","log":{"category":"list","cut":false,"level":"info","logTime":"2026-11-04T10:15:01.900Z","message":"Loaded 3 notes","subsystem":"com.example.fieldbook.demo"},"runId":"5C1E0A2B-7D4F-4B8A-9E61-0F3D2C1B0A99","seq":4,"time":"2026-11-04T10:15:02.100Z"}
+{"formatVersion":1,"kind":"log","log":{"category":"store","cut":false,"level":"error","logTime":"2026-11-04T10:15:05.150Z","message":"Could not open note 42 after 3 tries","subsystem":"com.example.fieldbook.demo"},"runId":"5C1E0A2B-7D4F-4B8A-9E61-0F3D2C1B0A99","seq":5,"time":"2026-11-04T10:15:05.200Z"}
+{"formatVersion":1,"hang":{"ms":412,"start":"2026-11-04T10:15:07.100Z"},"kind":"hang","runId":"5C1E0A2B-7D4F-4B8A-9E61-0F3D2C1B0A99","seq":6,"time":"2026-11-04T10:15:07.512Z"}
+{"command":{"id":"20261104-101500-before-fix-a1b2-1","name":"mark","via":"notification"},"formatVersion":1,"kind":"command","runId":"5C1E0A2B-7D4F-4B8A-9E61-0F3D2C1B0A99","seq":7,"time":"2026-11-04T10:15:12.350Z"}
+{"formatVersion":1,"kind":"snapshot","runId":"5C1E0A2B-7D4F-4B8A-9E61-0F3D2C1B0A99","seq":8,"snapshot":{"axNodes":3,"id":"5c1e0a2b-0001","ms":84,"nodes":5,"reason":"mark","truncated":false},"time":"2026-11-04T10:15:12.490Z"}
+{"formatVersion":1,"kind":"mark","mark":{"commandId":"20261104-101500-before-fix-a1b2-1","id":"5c1e0a2b-m1","name":"pin on the wrong page","number":1,"snapshotId":"5c1e0a2b-0001","source":"command"},"runId":"5C1E0A2B-7D4F-4B8A-9E61-0F3D2C1B0A99","seq":9,"time":"2026-11-04T10:15:12.495Z"}
+{"formatVersion":1,"kind":"memory","memory":{"footprint":104857600,"peak":104857600},"runId":"5C1E0A2B-7D4F-4B8A-9E61-0F3D2C1B0A99","seq":10,"time":"2026-11-04T10:15:14.000Z"}
+{"formatVersion":1,"kind":"note","note":{"markId":"5c1e0a2b-m1","text":"The pin shows on page 2, it belongs on page 1."},"runId":"5C1E0A2B-7D4F-4B8A-9E61-0F3D2C1B0A99","seq":11,"time":"2026-11-04T10:15:20.000Z"}
+{"formatVersion":1,"kind":"log","runId":"5C1E0A2B-7D4F-4B8A-9E61-0F3D2C1B0A99","seq":12,"ti

@@ -1,0 +1,134 @@
+{
+  "formatVersion": 1,
+  "limit": 5000,
+  "nodes": 5,
+  "truncated": false,
+  "windows": [
+    {
+      "frame": {
+        "h": 844,
+        "w": 390,
+        "x": 0,
+        "y": 0
+      },
+      "index": 0,
+      "isKey": true,
+      "number": null,
+      "root": {
+        "alpha": 1,
+        "children": [
+          {
+            "alpha": 1,
+            "children": [
+              {
+                "alpha": 1,
+                "ax": {
+                  "id": "noteRow-n3",
+                  "traits": []
+                },
+                "children": [
+                  {
+                    "alpha": 1,
+                    "ax": {
+                      "label": {
+                        "length": 11,
+                        "sha256_8": "81602ebb"
+                      },
+                      "traits": [
+                        "staticText"
+                      ]
+                    },
+                    "children": [],
+                    "frame": {
+                      "h": 22,
+                      "w": 200,
+                      "x": 20,
+                      "y": 160
+                    },
+                    "hidden": false,
+                    "interactive": true,
+                    "text": {
+                      "length": 11,
+                      "sha256_8": "81602ebb"
+                    },
+                    "type": "UILabel",
+                    "window": 0
+                  },
+                  {
+                    "alpha": 1,
+                    "ax": {
+                      "id": "pinnedBadge",
+                      "label": {
+                        "length": 6,
+                        "sha256_8": "f20c8794"
+                      },
+                      "traits": [
+                        "staticText"
+                      ]
+                    },
+                    "children": [],
+                    "frame": {
+                      "h": 22,
+                      "w": 60,
+                      "x": 300,
+                      "y": 160
+                    },
+                    "hidden": false,
+                    "interactive": true,
+                    "text": {
+                      "length": 6,
+                      "sha256_8": "f20c8794"
+                    },
+                    "type": "UILabel",
+                    "window": 0
+                  }
+                ],
+                "frame": {
+                  "h": 44,
+                  "w": 390,
+                  "x": 0,
+                  "y": 150
+                },
+                "hidden": false,
+                "interactive": true,
+                "type": "UIView",
+                "window": 0
+              }
+            ],
+            "frame": {
+              "h": 700,
+              "w": 390,
+              "x": 0,
+              "y": 100
+            },
+            "hidden": false,
+            "interactive": true,
+            "scroll": {
+              "content": {
+                "h": 1200,
+                "w": 390
+              },
+              "offset": {
+                "x": 0,
+                "y": 0
+              }
+            },
+            "type": "UIScrollView",
+            "window": 0
+          }
+        ],
+        "frame": {
+          "h": 844,
+          "w": 390,
+          "x": 0,
+          "y": 0
+        },
+        "hidden": false,
+        "interactive": true,
+        "type": "UIWindow",
+        "window": 0
+      },
+      "title": null
+    }
+  ]
+}

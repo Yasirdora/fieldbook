@@ -1,0 +1,20 @@
+{
+  "appBuild": "7",
+  "appName": "Fieldbook Demo",
+  "appVersion": "1.0",
+  "bundleId": "com.example.fieldbook.demo",
+  "commit": "a1b2c3d",
+  "deviceModel": "iPhone13,3",
+  "executable": "FieldbookDemo",
+  "formatVersion": 1,
+  "hangThresholdMs": 250,
+  "isSimulator": false,
+  "osVersion": "27.0.1",
+  "pid": 4242,
+  "platform": "iOS",
+  "probeVersion": "0.1.0",
+  "processStart": "2026-11-04T10:15:00.000Z",
+  "redaction": "hashed",
+  "runId": "5C1E0A2B-7D4F-4B8A-9E61-0F3D2C1B0A99",
+  "writtenAt": "2026-11-04T10:15:00.390Z"
+}

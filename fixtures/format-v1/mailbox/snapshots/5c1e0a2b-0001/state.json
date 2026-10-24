@@ -1,0 +1,16 @@
+{
+  "formatVersion": 1,
+  "problems": {},
+  "providers": {
+    "editor": {
+      "flags": [
+        true,
+        null,
+        1.5
+      ],
+      "page": 12,
+      "selectedNote": "n3"
+    }
+  },
+  "time": "2026-11-04T10:15:12.410Z"
+}

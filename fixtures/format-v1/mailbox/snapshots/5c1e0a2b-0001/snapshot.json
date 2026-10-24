@@ -1,0 +1,24 @@
+{
+  "ax": {
+    "nodes": 3,
+    "truncated": false
+  },
+  "commandId": "20261104-101500-before-fix-a1b2-1",
+  "formatVersion": 1,
+  "id": "5c1e0a2b-0001",
+  "markId": "5c1e0a2b-m1",
+  "ms": 84,
+  "parts": [
+    "tree",
+    "ax",
+    "state",
+    "rendered"
+  ],
+  "problems": [],
+  "reason": "mark",
+  "time": "2026-11-04T10:15:12.400Z",
+  "tree": {
+    "nodes": 5,
+    "truncated": false
+  }
+}
