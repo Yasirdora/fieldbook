@@ -196,6 +196,13 @@ export class Recorder {
     return measured(copied, `${now.source}; compared with the list at the start`);
   }
 
+  /** Stops the timer and the console without closing the session (the server is shutting down). */
+  detach(): void {
+    if (this.timer) clearInterval(this.timer);
+    this.timer = undefined;
+    this.console?.controller.abort();
+  }
+
   private async stopConsole(): Promise<void> {
     if (!this.console) return;
     this.console.controller.abort();
