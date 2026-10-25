@@ -1,0 +1,32 @@
+{
+  "devices": {
+    "com.apple.CoreSimulator.SimRuntime.iOS-27-0": [
+      {
+        "lastBootedAt": "2026-11-04T08:00:00Z",
+        "dataPath": "/Users/tester/Library/Developer/CoreSimulator/Devices/00000000-0000-4000-8000-0000000000C1/data",
+        "logPath": "/Users/tester/Library/Logs/CoreSimulator/00000000-0000-4000-8000-0000000000C1",
+        "udid": "00000000-0000-4000-8000-0000000000C1",
+        "isAvailable": true,
+        "deviceTypeIdentifier": "com.apple.CoreSimulator.SimDeviceType.iPhone-17-Pro",
+        "state": "Booted",
+        "name": "Scratch iPhone"
+      },
+      {
+        "udid": "00000000-0000-4000-8000-0000000000C2",
+        "isAvailable": true,
+        "deviceTypeIdentifier": "com.apple.CoreSimulator.SimDeviceType.iPhone-17",
+        "state": "Shutdown",
+        "name": "Spare iPhone"
+      }
+    ],
+    "com.apple.CoreSimulator.SimRuntime.watchOS-27-0": [
+      {
+        "udid": "00000000-0000-4000-8000-0000000000C3",
+        "isAvailable": true,
+        "deviceTypeIdentifier": "com.apple.CoreSimulator.SimDeviceType.Apple-Watch-Series-11-46mm",
+        "state": "Shutdown",
+        "name": "Spare Watch"
+      }
+    ]
+  }
+}

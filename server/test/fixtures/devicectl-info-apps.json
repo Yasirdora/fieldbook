@@ -1,0 +1,26 @@
+{
+  "info": { "commandType": "devicectl.device.info.apps", "jsonVersion": 2, "outcome": "success", "version": "651.32" },
+  "result": {
+    "apps": [
+      {
+        "appClip": false,
+        "builtByDeveloper": true,
+        "bundleIdentifier": "com.example.sparrowpad",
+        "bundleVersion": "7",
+        "defaultApp": false,
+        "hidden": false,
+        "internalApp": false,
+        "name": "Sparrowpad",
+        "removable": true,
+        "url": "file:///private/var/containers/Bundle/Application/00000000-0000-4000-8000-0000000000D1/Sparrowpad.app/",
+        "version": "1.0"
+      }
+    ],
+    "defaultAppsIncluded": false,
+    "deviceIdentifier": "00000000-0000-4000-8000-0000000000A1",
+    "hiddenAppsIncluded": false,
+    "internalAppsIncluded": false,
+    "matchingBundleIdentifier": null,
+    "removableAppsIncluded": true
+  }
+}

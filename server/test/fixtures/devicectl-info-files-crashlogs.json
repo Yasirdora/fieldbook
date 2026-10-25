@@ -1,0 +1,9 @@
+{
+  "info": { "commandType": "devicectl.device.info.files", "jsonVersion": 2, "outcome": "success", "version": "651.32" },
+  "result": {
+    "files": [
+      { "creationDate": "2026-11-01T09:00:00Z", "fileSize": 18232, "relativePath": "Sparrowpad-2026-11-01-090000.ips" },
+      { "creationDate": "2026-11-02T12:30:00Z", "fileSize": 9120, "relativePath": "OtherApp-2026-11-02-123000.ips" }
+    ]
+  }
+}
