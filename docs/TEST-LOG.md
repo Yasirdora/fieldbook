@@ -40,3 +40,6 @@ constants match.
 | 13 | `node --test test/compare.test.ts test/evidence.test.ts` | 2 files | red: both fail | `src/tools/compare.ts` and `src/tools/evidence.ts` did not exist yet. |
 | 14 | same, after writing them | 10 | red: 9 pass, 1 fail | The check was too strict: it banned the word "score" in the summary, which says "there is no overall score". The check now looks for a score value (`score:`, `x/y points`, `overall:`). No code changed for it. |
 | 15 | `npm test` | 83 | green: 83 pass | `tsc` clean; compare and evidence registered as MCP tools. |
+| 16 | `node --test test/release-check.test.ts` | 8 | red: 0 pass, 8 fail | `scripts/check-release-clean.sh` did not exist yet. |
+| 17 | same | 8 | green: 8 pass | The script is tested with fake .app folders (iOS and macOS layout) and a fake `nm` on PATH. `bash -n` passes. shellcheck is not installed here. |
+| 18 | `npm test` | 91 | green: 91 pass | |
