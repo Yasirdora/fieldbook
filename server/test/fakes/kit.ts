@@ -160,6 +160,12 @@ export class FakeKit {
     const info = JSON.parse(fs.readFileSync(path.join(target, "snapshot.json"), "utf8"));
     Object.assign(info, { id, reason, markId: markId ?? null, commandId: commandId ?? null, time: this.now() });
     fs.writeFileSync(path.join(target, "snapshot.json"), JSON.stringify(info));
+    if (this.options.platform === "macOS") {
+      // AppKit snapshots carry the window number the Mac needs for `screencapture -l`.
+      const tree = JSON.parse(fs.readFileSync(path.join(target, "tree.json"), "utf8"));
+      tree.windows[0].number = 4242;
+      fs.writeFileSync(path.join(target, "tree.json"), JSON.stringify(tree));
+    }
     this.event("snapshot", { id, reason, ms: 84, nodes: 5, axNodes: 3, truncated: false });
     return id;
   }
@@ -179,6 +185,15 @@ export class FakeKit {
       if (item.snapshotId) fs.rmSync(path.join(this.dir, "snapshots", item.snapshotId), { recursive: true, force: true });
       fs.rmSync(path.join(outbox, name));
     }
+  }
+
+  /** A MetricKit payload, stored like the kit stores it. Returns its path in the mailbox. */
+  metricKit(type: "metrics" | "diagnostics"): string {
+    const file = `metrickit/${this.options.now().getTime()}-${type}.json`;
+    fs.writeFileSync(path.join(this.dir, file), JSON.stringify({ timeStampBegin: this.now(), invented: true }));
+    this.event("metrickit", { file, type });
+    this.outbox("metrickit", { ok: true, file });
+    return file;
   }
 
   outboxNames(): string[] {

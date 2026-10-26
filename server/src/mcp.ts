@@ -11,6 +11,8 @@ import { ToolError, type ToolAnswer } from "./tools/common.ts";
 import { devicesTool } from "./tools/devices.ts";
 import { doctorTool } from "./tools/doctor.ts";
 import { sessionStart, sessionStop } from "./tools/session.ts";
+import { findTool } from "./tools/find.ts";
+import { markTool, SNAPSHOT_PARTS, snapshotTool } from "./tools/mark.ts";
 import { timelineTool } from "./tools/timeline.ts";
 import { TOOL_VERSION } from "./version.ts";
 
@@ -41,7 +43,7 @@ async function run(work: () => Promise<ToolAnswer<unknown>>): Promise<TextResult
 const target = z.enum(["phone", "simulator", "mac"]);
 const bundleId = z.string().regex(/^[A-Za-z0-9][A-Za-z0-9.-]*$/, "a bundle id such as com.example.app");
 
-export const TOOL_NAMES = ["devices", "doctor", "session_start", "session_stop", "timeline"] as const;
+export const TOOL_NAMES = ["devices", "doctor", "session_start", "session_stop", "timeline", "mark", "snapshot", "find"] as const;
 
 export function createServer(ctx: Context): McpServer {
   const server = new McpServer({ name: "fieldbook", version: TOOL_VERSION });
@@ -113,6 +115,45 @@ export function createServer(ctx: Context): McpServer {
       },
     },
     (input) => run(() => timelineTool(ctx, input)),
+  );
+
+  server.registerTool(
+    "mark",
+    {
+      title: "Mark this moment",
+      description:
+        "Sends a mark command to the app (it stores a snapshot: view tree, accessibility tree, its state, a rendered screen) and takes a real screenshot at the same moment (phone: devicectl capture screenshot; simulator: simctl io screenshot; Mac: screencapture -l of the app's window). Files marks/<n>-<slug>/.",
+      inputSchema: { session: z.string().min(1), name: z.string().max(120).optional() },
+    },
+    (input) => run(() => markTool(ctx, input)),
+  );
+
+  server.registerTool(
+    "snapshot",
+    {
+      title: "Snapshot on demand",
+      description:
+        "Asks the app for a snapshot now and files snapshots/<id>/. parts chooses from tree, ax, state, rendered (taken by the app) and screen (a real capture by the Mac); default all.",
+      inputSchema: { session: z.string().min(1), parts: z.array(z.enum(SNAPSHOT_PARTS)).min(1).optional() },
+    },
+    (input) => run(() => snapshotTool(ctx, input)),
+  );
+
+  server.registerTool(
+    "find",
+    {
+      title: "Find elements in a mark",
+      description:
+        "Finds elements in a mark's view tree and accessibility tree. query: id:<identifier>, label:<text>, value:<text>, text:<text>, type:<TypeName>, hash:<sha256_8>, or plain text. Returns frames (window points) and paths. inside: a second query answers 'is A inside B'; distanceTo: the gap and center distance in points.",
+      inputSchema: {
+        session: z.string().min(1),
+        mark: z.string().min(1).describe("Mark number or name."),
+        query: z.string().min(1),
+        inside: z.string().optional(),
+        distanceTo: z.string().optional(),
+      },
+    },
+    (input) => run(() => findTool(ctx, input)),
   );
 
   return server;

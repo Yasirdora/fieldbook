@@ -24,3 +24,11 @@ constants match.
 | 7 | `npm test` | 50 | green: 50 pass | `tsc` reported 13 "possibly null" errors in two test files; fixed with non-null marks. |
 | 8 | `node --test test/mcp.test.ts`, `node --test test/stdio.test.ts` | 5 | green: 5 pass | Honest note: written before `src/mcp.ts` and `src/main.ts`, but not run before the code existed, so no red run was recorded. |
 | 9 | `npm test` | 55 | green: 55 pass | `tsc` clean. |
+
+## Phase 3 (server side)
+
+| # | Command (in `server/`) | Tests | Result | Why it was red / note |
+|---|---|---|---|---|
+| 10 | `node --test test/mark.test.ts test/find.test.ts test/metrickit-crash.test.ts` | 3 files | red: 5 pass, 2 files fail | `src/tools/mark.ts` and `src/tools/find.ts` did not exist yet. Honest note: the 5 MetricKit and crash tests passed at once, because ingest (MetricKit copies) and session_stop (crash pickup) were written in phase 1. |
+| 11 | same | 18 | green: 18 pass | |
+| 12 | `npm test` | 73 | green: 73 pass | `tsc` clean. |
