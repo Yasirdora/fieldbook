@@ -32,3 +32,11 @@ constants match.
 | 10 | `node --test test/mark.test.ts test/find.test.ts test/metrickit-crash.test.ts` | 3 files | red: 5 pass, 2 files fail | `src/tools/mark.ts` and `src/tools/find.ts` did not exist yet. Honest note: the 5 MetricKit and crash tests passed at once, because ingest (MetricKit copies) and session_stop (crash pickup) were written in phase 1. |
 | 11 | same | 18 | green: 18 pass | |
 | 12 | `npm test` | 73 | green: 73 pass | `tsc` clean. |
+
+## Phase 4 (server side)
+
+| # | Command (in `server/`) | Tests | Result | Why it was red / note |
+|---|---|---|---|---|
+| 13 | `node --test test/compare.test.ts test/evidence.test.ts` | 2 files | red: both fail | `src/tools/compare.ts` and `src/tools/evidence.ts` did not exist yet. |
+| 14 | same, after writing them | 10 | red: 9 pass, 1 fail | The check was too strict: it banned the word "score" in the summary, which says "there is no overall score". The check now looks for a score value (`score:`, `x/y points`, `overall:`). No code changed for it. |
+| 15 | `npm test` | 83 | green: 83 pass | `tsc` clean; compare and evidence registered as MCP tools. |

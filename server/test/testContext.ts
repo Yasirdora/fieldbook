@@ -33,13 +33,20 @@ export function setup(): TestSetup {
 }
 
 /** A fake kit in the app's mailbox on the given device. */
-export function kitOn(world: FakeWorld, clock: TestClock, device = PHONE_ID, runId?: string): FakeKit {
+export function kitOn(
+  world: FakeWorld,
+  clock: TestClock,
+  device = PHONE_ID,
+  runId?: string,
+  editTrees?: (tree: any, ax: any) => void,
+): FakeKit {
   const bundleId = device === "this-mac" ? MAC_BUNDLE : BUNDLE;
   return new FakeKit(world.mailbox(device), {
     bundleId,
     now: clock.now,
     runId,
     platform: device === "this-mac" ? "macOS" : "iOS",
+    editTrees,
   });
 }
 

@@ -8,8 +8,10 @@ import { z } from "zod";
 import type { Context } from "./context.ts";
 import { RefusedCommand } from "./runner.ts";
 import { ToolError, type ToolAnswer } from "./tools/common.ts";
+import { compareTool } from "./tools/compare.ts";
 import { devicesTool } from "./tools/devices.ts";
 import { doctorTool } from "./tools/doctor.ts";
+import { evidenceTool } from "./tools/evidence.ts";
 import { sessionStart, sessionStop } from "./tools/session.ts";
 import { findTool } from "./tools/find.ts";
 import { markTool, SNAPSHOT_PARTS, snapshotTool } from "./tools/mark.ts";
@@ -43,7 +45,7 @@ async function run(work: () => Promise<ToolAnswer<unknown>>): Promise<TextResult
 const target = z.enum(["phone", "simulator", "mac"]);
 const bundleId = z.string().regex(/^[A-Za-z0-9][A-Za-z0-9.-]*$/, "a bundle id such as com.example.app");
 
-export const TOOL_NAMES = ["devices", "doctor", "session_start", "session_stop", "timeline", "mark", "snapshot", "find"] as const;
+export const TOOL_NAMES = ["devices", "doctor", "session_start", "session_stop", "timeline", "mark", "snapshot", "find", "compare", "evidence"] as const;
 
 export function createServer(ctx: Context): McpServer {
   const server = new McpServer({ name: "fieldbook", version: TOOL_VERSION });
@@ -154,6 +156,28 @@ export function createServer(ctx: Context): McpServer {
       },
     },
     (input) => run(() => findTool(ctx, input)),
+  );
+
+  server.registerTool(
+    "compare",
+    {
+      title: "Compare two sessions",
+      description:
+        "Compares two sessions of the same steps (a = before, b = after). Rules (thresholds in fieldbook.json): crashes fail when b > a; median launch fails when b > a × 1.2 and b > a + 100 ms; peak memory fails when b > a × 1.25; hangs ≥ 250 ms fail when b > a + 1; new error/fault messages warn. Marks with the same name: missing elements, frames moved > 2 pt, changed text. Each rule shows both numbers and pass, warn, fail or unchecked; never one overall score.",
+      inputSchema: { a: z.string().min(1), b: z.string().min(1) },
+    },
+    (input) => run(() => compareTool(ctx, input)),
+  );
+
+  server.registerTool(
+    "evidence",
+    {
+      title: "Write evidence.json",
+      description:
+        "Writes evidence.json for one session or one comparison: tool and format version, target, device model, OS, app version, build, commit and change, times, the rules with thresholds and both numbers, and every cited file with its sha256. For a Code Director report to cite.",
+      inputSchema: { session: z.string().optional(), comparison: z.string().optional() },
+    },
+    (input) => run(() => evidenceTool(ctx, input)),
   );
 
   return server;

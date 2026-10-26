@@ -14,6 +14,8 @@ export interface FakeKitOptions {
   runId?: string;
   executable?: string;
   platform?: "iOS" | "macOS";
+  /** Changes the copied tree.json and ax.json of every snapshot (to fake a UI change). */
+  editTrees?: (tree: any, ax: any) => void;
 }
 
 export class FakeKit {
@@ -88,9 +90,9 @@ export class FakeKit {
     this.event("memory", { footprint, peak });
   }
 
-  /** A mark from a shake (no command). */
-  shake(): string {
-    return this.mark({ source: "shake" });
+  /** A mark from a shake (no command). A name stands in for a mark sent from the Mac. */
+  shake(name?: string): string {
+    return this.mark({ source: name ? "command" : "shake", name });
   }
 
   note(markId: string, text: string): void {
@@ -160,6 +162,15 @@ export class FakeKit {
     const info = JSON.parse(fs.readFileSync(path.join(target, "snapshot.json"), "utf8"));
     Object.assign(info, { id, reason, markId: markId ?? null, commandId: commandId ?? null, time: this.now() });
     fs.writeFileSync(path.join(target, "snapshot.json"), JSON.stringify(info));
+    if (this.options.editTrees) {
+      const treeFile = path.join(target, "tree.json");
+      const axFile = path.join(target, "ax.json");
+      const tree = JSON.parse(fs.readFileSync(treeFile, "utf8"));
+      const ax = JSON.parse(fs.readFileSync(axFile, "utf8"));
+      this.options.editTrees(tree, ax);
+      fs.writeFileSync(treeFile, JSON.stringify(tree));
+      fs.writeFileSync(axFile, JSON.stringify(ax));
+    }
     if (this.options.platform === "macOS") {
       // AppKit snapshots carry the window number the Mac needs for `screencapture -l`.
       const tree = JSON.parse(fs.readFileSync(path.join(target, "tree.json"), "utf8"));
