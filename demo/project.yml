@@ -1,0 +1,163 @@
+# Sparrowpad: a small demo app to try the debug kit on iOS and macOS.
+# Make the Xcode project from the repository root with:
+#   xcodegen generate --spec demo/project.yml
+# See README.md in this folder for how the Debug-only linking works.
+
+name: Sparrowpad
+
+options:
+  bundleIdPrefix: com.example
+  deploymentTarget:
+    iOS: "26.0"
+    macOS: "26.0"
+
+# Shown in the Xcode navigator, but not part of any target.
+fileGroups:
+  - Config
+  - README.md
+
+settings:
+  base:
+    SWIFT_VERSION: "6.0"
+    SWIFT_STRICT_CONCURRENCY: complete
+    MARKETING_VERSION: "1.0"
+    CURRENT_PROJECT_VERSION: "1"
+  configs:
+    Debug:
+      SWIFT_ACTIVE_COMPILATION_CONDITIONS: DEBUG
+
+settingGroups:
+  # The kit, built from ../kit/Sources as a static framework.
+  # The app does not link it on its own (see sparrowpadApp below).
+  kitFramework:
+    MACH_O_TYPE: staticlib
+    GENERATE_INFOPLIST_FILE: "YES"
+    SKIP_INSTALL: "YES"
+    CODE_SIGNING_ALLOWED: "NO"
+
+  # Settings both app targets share.
+  sparrowpadApp:
+    base:
+      PRODUCT_NAME: Sparrowpad
+      GENERATE_INFOPLIST_FILE: "YES"
+      INFOPLIST_KEY_CFBundleDisplayName: Sparrowpad
+      # Pass FIELDBOOK_COMMIT=$(git rev-parse --short HEAD) to xcodebuild.
+      FIELDBOOK_COMMIT: unknown
+    configs:
+      Debug:
+        # Debug only: adds the key FieldbookCommit to the generated Info.plist.
+        INFOPLIST_FILE: Config/Debug-Info.plist
+        # Debug only: links the kit. Release has no such flags, so it contains no kit code.
+        OTHER_LDFLAGS: "$(inherited) -framework FieldbookKit -framework FieldbookCore"
+
+targets:
+  # MARK: Kit for iOS
+
+  FieldbookCore-iOS:
+    type: framework
+    platform: iOS
+    sources:
+      - path: ../kit/Sources/FieldbookCore
+        group: Kit
+    settings:
+      groups: [kitFramework]
+      base:
+        PRODUCT_NAME: FieldbookCore
+        PRODUCT_BUNDLE_IDENTIFIER: com.example.kit.core
+
+  FieldbookKit-iOS:
+    type: framework
+    platform: iOS
+    sources:
+      - path: ../kit/Sources/FieldbookKit
+        group: Kit
+    dependencies:
+      - target: FieldbookCore-iOS
+        link: false
+    settings:
+      groups: [kitFramework]
+      base:
+        PRODUCT_NAME: FieldbookKit
+        PRODUCT_BUNDLE_IDENTIFIER: com.example.kit.probe
+
+  # MARK: Kit for macOS
+
+  FieldbookCore-macOS:
+    type: framework
+    platform: macOS
+    sources:
+      - path: ../kit/Sources/FieldbookCore
+        group: Kit
+    settings:
+      groups: [kitFramework]
+      base:
+        PRODUCT_NAME: FieldbookCore
+        PRODUCT_BUNDLE_IDENTIFIER: com.example.kit.core
+
+  FieldbookKit-macOS:
+    type: framework
+    platform: macOS
+    sources:
+      - path: ../kit/Sources/FieldbookKit
+        group: Kit
+    dependencies:
+      - target: FieldbookCore-macOS
+        link: false
+    settings:
+      groups: [kitFramework]
+      base:
+        PRODUCT_NAME: FieldbookKit
+        PRODUCT_BUNDLE_IDENTIFIER: com.example.kit.probe
+
+  # MARK: Apps
+  # The app depends on the kit only so Xcode builds the kit first.
+  # link: false and embed: false keep the kit out of the app bundle.
+
+  Sparrowpad-iOS:
+    type: application
+    platform: iOS
+    sources:
+      - path: Sparrowpad
+    dependencies:
+      - target: FieldbookCore-iOS
+        link: false
+        embed: false
+      - target: FieldbookKit-iOS
+        link: false
+        embed: false
+    settings:
+      groups: [sparrowpadApp]
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.example.sparrowpad
+        TARGETED_DEVICE_FAMILY: "1,2"
+        SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD: "NO"
+        INFOPLIST_KEY_UILaunchScreen_Generation: "YES"
+        INFOPLIST_KEY_UIApplicationSceneManifest_Generation: "YES"
+        INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents: "YES"
+        INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone: "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight"
+        INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad: "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight"
+    scheme: {}
+
+  Sparrowpad-macOS:
+    type: application
+    platform: macOS
+    sources:
+      - path: Sparrowpad
+    dependencies:
+      - target: FieldbookCore-macOS
+        link: false
+        embed: false
+      - target: FieldbookKit-macOS
+        link: false
+        embed: false
+    settings:
+      groups: [sparrowpadApp]
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.example.sparrowpad.mac
+        # Sandboxed, so the mailbox lives in the app's container.
+        CODE_SIGN_ENTITLEMENTS: Config/Sparrowpad-macOS.entitlements
+        ENABLE_APP_SANDBOX: "YES"
+        # Sign to run locally. No team is needed.
+        CODE_SIGN_STYLE: Manual
+        CODE_SIGN_IDENTITY: "-"
+    scheme: {}
