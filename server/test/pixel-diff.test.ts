@@ -45,8 +45,10 @@ function png(width: number, height: number, color: (x: number, y: number) => num
     const line = Buffer.alloc(raw.length);
     for (let i = 0; i < raw.length; i++) {
       const left = i >= channels ? (raw[i - channels] as number) : 0;
-      const up = previous[i] as number;
-      line[i] = filter === 1 ? ((raw[i] as number) - left) & 0xff : filter === 2 ? ((raw[i] as number) - up) & 0xff : (raw[i] as number);
+      const up = y > 0 ? (previous[i] as number) : 0;
+      const upLeft = y > 0 && i >= channels ? (previous[i - channels] as number) : 0;
+      const predicted = [0, left, up, (left + up) >> 1, paeth(left, up, upLeft)][filter] as number;
+      line[i] = ((raw[i] as number) - predicted) & 0xff;
     }
     rows.push(Buffer.concat([Buffer.from([filter]), line]));
     previous = raw;
@@ -59,10 +61,17 @@ function png(width: number, height: number, color: (x: number, y: number) => num
   ]);
 }
 
+function paeth(left: number, up: number, upLeft: number): number {
+  const p = left + up - upLeft;
+  const [pa, pb, pc] = [Math.abs(p - left), Math.abs(p - up), Math.abs(p - upLeft)];
+  if (pa <= pb && pa <= pc) return left;
+  return pb <= pc ? up : upLeft;
+}
+
 const gradient = (x: number, y: number) => [x * 10, y * 10, 128, 255];
 
-test("decodes 8-bit RGBA and RGB with filters", () => {
-  for (const [channels, filter] of [[4, 0], [4, 1], [4, 2], [3, 0], [3, 2]]) {
+test("decodes 8-bit RGBA and RGB with all five row filters", () => {
+  for (const [channels, filter] of [[4, 0], [4, 1], [4, 2], [4, 3], [4, 4], [3, 0], [3, 2], [3, 3], [3, 4]]) {
     const image = decodePng(png(5, 4, gradient, channels, filter));
     assert.equal(image.width, 5);
     assert.equal(image.height, 4);
