@@ -175,13 +175,15 @@ on fake `.app` folders, and the SHA-256 logic (through a JavaScript port).
 
 ## 4. Guesses (each checked in docs/TESTING-ON-MAC.md)
 
+The ten "measure first" unknowns of the brief are G1–G8, G14 and G15; G9–G13 are smaller guesses this build added.
+
 | # | Guess | What happens if it is wrong | Checked in |
 |---|---|---|---|
 | G1 | A Darwin notification posted by `devicectl device notification post` (phone) or `simctl spawn … notifyutil -p` (simulator) reaches the app. | Commands arrive within 2 s through the inbox read. `doctor` says which path worked. | step 9, 13 |
 | G2 | `copy from` with `--source "Library/Application Support/Fieldbook"` copies the folder, and `copy to` with `--destination "Library/Application Support/Fieldbook/inbox/<file>"` writes one file. | Pulls or commands fail with devicectl's message; the path form must change in `devices/phone.ts`. | step 12 |
 | G3 | The in-app view tree sees UIKit hosting views for SwiftUI; the accessibility tree sees SwiftUI elements. | `find` may not find SwiftUI elements by identifier in one of the trees. | step 7 |
-| G4 | The rendered screenshot looks like the real one, except for Liquid Glass effects. | Prefer `screen-captured.png`; the share of changed pixels is measured. | step 8 |
-| G5 | `OSLogStore(scope: .currentProcessIdentifier)` returns this process's entries on iOS 27 in a Debug build. | No log events; a `problem` event says the store could not be read. | step 10 |
+| G4 | The rendered screenshot looks like the real one, except for Liquid Glass effects. | Prefer `screen-captured.png`; the share of changed pixels is measured (`scripts/pixel-diff.ts`). | steps 8, 14 |
+| G5 | `OSLogStore(scope: .currentProcessIdentifier)` returns this process's entries on iOS 27 in a Debug build. | No log events; a `problem` event says the store could not be read. | steps 10, 14 |
 | G6 | The 50 ms watchdog costs near-zero CPU when idle and reports no false hang after returning from the background. | Overhead or false hangs; the interval or the reset needs a change. | step 11 |
 | G7 | Accelerometer updates need no permission prompt. | A prompt appears; shake marks need user permission once. | step 14 |
 | G8 | MetricKit delivers diagnostic payloads soon after a crash in a Debug build. | `metrickit/` stays empty; crash logs still come from systemCrashLogs. | step 16 |
@@ -190,3 +192,5 @@ on fake `.app` folders, and the SHA-256 logic (through a JavaScript port).
 | G11 | `info lockState` has a boolean `passcodeRequired`; `info apps` lists `bundleIdentifier`, `name`, `version`, `bundleVersion` under `result.apps`; `info files` lists names under `relativePath`. | Lock state or app version shows as *missing*; the parser needs the real key. | step 12 |
 | G12 | `simctl list devices --json` and `simctl launch --terminate-running-process` exist as used. (From simctl's help text.) | The simulator list or relaunch fails with simctl's message. | step 3 |
 | G13 | `properties.state.name` in `devicectl list devices` is the device's name (as `deviceProperties.name` was). | A phone shows an odd name; reachability is not affected. | step 12 |
+| G14 | `process launch --console` (and `simctl launch --console-pty`) shows the app's `print` output; whether `Logger` output appears there too is open. | Nothing breaks: logs come from OSLogStore (G5); `console.log` holds whatever the console shows. | steps 5, 15 |
+| G15 | Reading a sandboxed Mac app's container from the server's process may bring up a macOS privacy prompt. | The first pull fails until the user allows it once; doctor's container item says so. | step 6 |
