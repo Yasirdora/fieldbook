@@ -1,0 +1,5 @@
+{
+  "private": true,
+  "type": "module",
+  "description": "Helper scripts. pixel-diff.ts runs with plain Node 22.18+; check-release-clean.sh with bash."
+}

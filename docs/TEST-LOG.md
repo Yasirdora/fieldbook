@@ -43,3 +43,6 @@ constants match.
 | 16 | `node --test test/release-check.test.ts` | 8 | red: 0 pass, 8 fail | `scripts/check-release-clean.sh` did not exist yet. |
 | 17 | same | 8 | green: 8 pass | The script is tested with fake .app folders (iOS and macOS layout) and a fake `nm` on PATH. `bash -n` passes. shellcheck is not installed here. |
 | 18 | `npm test` | 91 | green: 91 pass | |
+| 19 | `node --test test/kit-rules.test.ts` | 4 | green: 4 pass | Scans `kit/Sources` for banned constructs. Honest note: no red run — it checks code that already followed the rules; its last test proves the scan finds a banned construct in a sample. |
+| 20 | `node --test test/pixel-diff.test.ts` | 5 | green: 5 pass | Honest note: the test and `scripts/pixel-diff.ts` were written together, so there was no red run. `tsc` then failed because `scripts/` had no `"type": "module"`; fixed with `scripts/package.json`. |
+| 21 | `npm test` | 100 | green: 100 pass | `tsc` clean. |
