@@ -63,6 +63,8 @@ export class FakeWorld {
   consoleLines = ["Sparrowpad: launched\n", "Sparrowpad: list shows 3 notes\n"];
   /** Whether `notification observe` sees the app's outbox notification. */
   outboxNotificationArrives = true;
+  /** When true, `process launch` and `simctl launch` fail at once with an error. */
+  launchFails = false;
   /** Crash log names whose `copy from` fails although they are listed. */
   readonly failingCopies = new Set<string>();
   /** Tools that act as if they were not installed, for example "devicectl". */
@@ -278,6 +280,7 @@ export class FakeWorld {
 
   /** Prints the console lines, then runs until stopped. */
   private console(request: ExecRequest): Promise<ExecResult> {
+    if (this.launchFails) return Promise.resolve(fail("ERROR: The app could not be launched. (com.apple.dt.CoreDeviceError error 10002)"));
     for (const line of this.consoleLines) request.onStdout?.(line);
     return new Promise((resolve) => {
       const stop = () => resolve({ ...done(this.consoleLines.join("")), aborted: true, code: null });

@@ -144,12 +144,14 @@ class IngestRun {
   private readonly sessionDir: string;
   private readonly state: IngestState;
   private readonly now: Date;
+  private readonly sessionId: string;
 
   constructor(root: string, sessionDir: string, session: SessionFile, state: IngestState, now: Date) {
     this.root = root;
     this.sessionDir = sessionDir;
     this.state = state;
     this.now = now;
+    this.sessionId = session.id;
     this.startedMs = Date.parse(session.startedAt);
   }
 
@@ -259,7 +261,7 @@ class IngestRun {
     if (this.state.marks.some((filed) => filed.id === mark.id)) return;
     const n = this.state.nextMark++;
     const dir = `marks/${n}-${slugify(mark.name ?? mark.source)}`;
-    const commandId = isSafeName(mark.commandId) ? mark.commandId : null;
+    const commandId = this.isOwnCommand(mark.commandId) ? mark.commandId : null;
     this.state.marks.push({ id: mark.id, n, dir, commandId });
     const absolute = path.join(this.sessionDir, dir);
     fs.mkdirSync(absolute, { recursive: true });
@@ -295,6 +297,11 @@ class IngestRun {
     this.state.pendingNotes = this.state.pendingNotes.filter((pending) => pending.markId !== mark.id);
     this.marksFiled.push(n);
     this.entries.push(this.entry(event, event.time, "measured", { n, id: mark.id, name: mark.name ?? null, source: mark.source, dir, commandId }));
+  }
+
+  /** True for an id this session's commands use: "<session id>-<seq>". */
+  private isOwnCommand(commandId: string | null | undefined): commandId is string {
+    return typeof commandId === "string" && commandId.startsWith(`${this.sessionId}-`) && /^\d+$/.test(commandId.slice(this.sessionId.length + 1));
   }
 
   /** Copies the snapshot files into the mark folder. False when the snapshot is not in the copy yet. */

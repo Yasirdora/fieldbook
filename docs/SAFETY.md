@@ -18,6 +18,13 @@ enforces it, so a reviewer can check it rather than trust it.
 | The Mac never deletes files on the device. | There is no delete command on the allowlist. The app deletes its own outbox items after the Mac's `ack` command (docs/FORMAT.md, "Pruning"). |
 | Darwin notifications are only Fieldbook's own. | Names must match `fieldbook.<bundle id>.inbox` or `.outbox`. A system name such as `com.apple.springboard.lockcomplete` is refused. Test: `allowlist.test.ts`. |
 
+## Data from the app
+
+| Rule | How it is enforced |
+|---|---|
+| Everything copied out of the app's mailbox is treated as untrusted. | `server/src/session/ingest.ts`: ids become paths only when they are safe names (`isSafeName`: letters, digits, `.`, `_`, `-`; no `/`, no leading `.`); only regular files are copied (`lstat`), never folders or links; event payloads are checked field by field (`server/src/format.ts`); a mark's command id is trusted only in this session's form. Tests: `hostile-mailbox.test.ts` (7), `recording-robustness.test.ts`. |
+| The app never loses data it was not asked to delete. | The ack covers only outbox items whose files are safely in the session. Test: `session.test.ts`, `hostile-mailbox.test.ts`. |
+
 ## How commands run
 
 | Rule | How it is enforced |

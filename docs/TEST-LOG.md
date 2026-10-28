@@ -59,3 +59,6 @@ An adversarial review (3 finders, 3 skeptics) read the server. These rows record
 | 25 | `node --test test/analysis-robustness.test.ts` | 8 | red: 0 pass, 8 fail | Evidence mixed saved verdicts with later data; non-finite numbers became "measured"; a mark with no snapshot passed; newErrors passed when b was never read; a crash log that failed to copy counted as 0; a broken tree threw in compare and find; find said "no match" when a mark had no trees; the header said "0 hangs" for a missing count; a blank mark picked an unnamed mark. |
 | 26 | same, after the fixes | 8 | green: 8 pass | |
 | 27 | `npm test` | 115 | green: 115 pass | `tsc` clean. |
+| 28 | `node --test test/recording-robustness.test.ts` | 7 | red: 0 pass, 7 fail | A foreign command id was trusted for a capture; two recorders after a restart; work after stop; a failed relaunch reported as done (stderr lost); two sessions on one app; crash logs matched by prefix only; the Mac capture used the newest snapshot's window, not the mark's. |
+| 29 | same, after the fixes | 7 | red: 6 pass, 1 fail | The test's own ordering: `sessionStop` reaches the recorder only after one `await`, so its "late" pull was really queued before the stop. The test now queues it after both stops started. No code changed for it. |
+| 30 | `npm test` | 122 | green: 122 pass | `tsc` clean. |

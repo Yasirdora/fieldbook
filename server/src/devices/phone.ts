@@ -1,4 +1,5 @@
 /** A paired phone or iPad, reached through devicectl. */
+import fs from "node:fs";
 import path from "node:path";
 import { INBOX_PATH, MAILBOX_PATH } from "../allowlist.ts";
 import { notificationName } from "../format.ts";
@@ -88,6 +89,8 @@ export class PhoneDevice implements Device {
   }
 
   async pullMailbox(bundleId: string, stagingDir: string): Promise<Labeled<string>> {
+    // The destination always exists, so devicectl lays the copy out the same way every time.
+    fs.mkdirSync(stagingDir, { recursive: true });
     const result = await this.runner.run(
       devicectl.copyFrom(this.id, { source: MAILBOX_PATH, destination: stagingDir, domainType: "appDataContainer", domainIdentifier: bundleId }),
       { timeoutMs: COPY_TIMEOUT_MS },

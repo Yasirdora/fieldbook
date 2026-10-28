@@ -22,6 +22,8 @@ export interface Context {
   autoPull: boolean;
   /** Sessions recording in this process, by id. */
   recorders: Map<string, Recorder>;
+  /** Sessions being reopened right now (after a server restart), so two calls share one recorder. */
+  opening: Map<string, Promise<Recorder>>;
 }
 
 export interface ContextOptions {
@@ -45,5 +47,6 @@ export function createContext(options: ContextOptions): Context {
     sleep: options.sleep ?? ((ms) => new Promise((resolve) => setTimeout(resolve, ms))),
     autoPull: options.autoPull ?? true,
     recorders: new Map(),
+    opening: new Map(),
   };
 }

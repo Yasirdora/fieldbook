@@ -60,7 +60,7 @@ xcrun simctl list devices --json | head -5
 
 Then call the tool `doctor` with no arguments.
 
-**Look for:** `# pass` equal to `# tests` (100 or more); no output from `typecheck`. The `grep -c`
+**Look for:** `# pass` equal to `# tests` (122 or more); no output from `typecheck`. The `grep -c`
 prints 1. `simctl list devices --json` prints JSON. In doctor: `✓ devicectl` and `✓ simctl`.
 **Pass:** all of the above. This settles **G12**.
 **Fallback for G12:** if `--terminate-running-process` does not exist, relaunch on a simulator fails

@@ -10,6 +10,7 @@ import type { Device, Launch } from "../devices/types.ts";
 import { isCrashLogOf } from "../devices/types.ts";
 import type { ExecResult } from "../exec.ts";
 import { buildCommand, commandFileName, type Command, type CommandArgs, type CommandName } from "../format.ts";
+import { failureText } from "../runner.ts";
 import { measured, missing, reported, type Labeled } from "../labels.ts";
 import { ingest, loadIngestState, saveIngestState, type IngestResult, type IngestState } from "./ingest.ts";
 import type { SessionFile, SessionStore, TimelineEntry } from "./store.ts";
@@ -19,6 +20,12 @@ export interface PullReport {
   problem?: string;
   entries: number;
   marksFiled: number[];
+}
+
+export interface StopResult {
+  pull: PullReport;
+  newCrashLogs: Labeled<string[]>;
+  copyFailures: string[];
 }
 
 export interface SentCommand {
@@ -36,6 +43,7 @@ export class Recorder {
   private queue: Promise<unknown> = Promise.resolve();
   private timer: NodeJS.Timeout | undefined;
   private console: { controller: AbortController; done: Promise<ExecResult> } | undefined;
+  private stopping: Promise<StopResult> | undefined;
 
   constructor(ctx: Context, store: SessionStore, device: Device, session: SessionFile) {
     this.ctx = ctx;
@@ -86,6 +94,7 @@ export class Recorder {
 
   /** Copies the mailbox, files what is new, and acknowledges the outbox items it copied. */
   private async pull(): Promise<PullReport> {
+    if (this.session.status === "stopped") return { ok: false, problem: "the session is stopped", entries: 0, marksFiled: [] };
     const staging = path.join(this.dir, "raw", "pull");
     const pulled = await this.device.pullMailbox(this.session.bundleId, staging);
     this.session.pulls.lastAt = this.ctx.now().toISOString();
@@ -127,6 +136,10 @@ export class Recorder {
   }
 
   private async send(name: CommandName, args: CommandArgs): Promise<SentCommand> {
+    if (this.session.status === "stopped") {
+      const command: Command = { formatVersion: 1, id: "", seq: 0, name, sentAt: this.ctx.now().toISOString(), args };
+      return { command, sent: missing("the session is stopped"), notified: missing("the session is stopped") };
+    }
     const seq = this.session.commands.nextSeq++;
     this.save();
     const command: Command = {
@@ -151,15 +164,24 @@ export class Recorder {
     const controller = new AbortController();
     const consoleFile = path.join(this.dir, "console.log");
     const launch = this.device.launch(this.session.bundleId, args, (text) => fs.appendFileSync(consoleFile, text), controller.signal);
-    if (launch.started) this.console = { controller, done: launch.done };
+    if (!launch.started) return launch;
+    this.console = { controller, done: launch.done };
+    void launch.done.then((result) => {
+      if (result.stderr.trim().length > 0) fs.appendFileSync(consoleFile, `\n[stderr of ${launch.command}]\n${result.stderr}`);
+      if (!result.aborted && result.code !== 0) {
+        this.session.problems.push(`the console ended early: ${failureText(result)}`);
+        this.save();
+      }
+    });
     return launch;
   }
 
   /** The last pull, crash pickup, and the session is closed. */
-  stop(): Promise<{ pull: PullReport; newCrashLogs: Labeled<string[]>; copyFailures: string[] }> {
-    return this.serial(async () => {
-      if (this.timer) clearInterval(this.timer);
-      this.timer = undefined;
+  stop(): Promise<StopResult> {
+    if (this.stopping) return this.stopping;
+    if (this.timer) clearInterval(this.timer);
+    this.timer = undefined;
+    this.stopping = this.serial(async () => {
       const pull = await this.pull();
       const { listed, copyFailures } = await this.pickUpCrashes();
       await this.stopConsole();
@@ -167,9 +189,10 @@ export class Recorder {
       this.session.status = "stopped";
       this.session.endedAt = this.ctx.now().toISOString();
       this.save();
-      this.ctx.recorders.delete(this.session.id);
+      if (this.ctx.recorders.get(this.session.id) === this) this.ctx.recorders.delete(this.session.id);
       return { pull, newCrashLogs: listed, copyFailures };
     });
+    return this.stopping;
   }
 
   /**
@@ -184,16 +207,23 @@ export class Recorder {
     const now = await this.device.crashLogNames();
     if (now.label === "missing") return { listed: missing(now.reason ?? "the crash logs could not be listed"), copyFailures: [] };
     const fresh = (now.value ?? []).filter((name) => isCrashLogOf(name, executable) && !(before.value ?? []).includes(name));
+    const counted: string[] = [];
     const copyFailures: string[] = [];
     const entries: TimelineEntry[] = [];
     for (const name of fresh) {
       const result = await this.device.copyCrashLog(name, path.join(this.dir, "crashes"));
       const copied = result.label !== "missing";
+      const owner = copied ? crashBundleId(result.value as string) : undefined;
+      if (owner !== undefined && owner !== this.session.bundleId) {
+        fs.rmSync(result.value as string, { force: true });
+        continue;
+      }
       if (!copied) {
         const why = `${name} could not be copied: ${result.reason ?? "unknown reason"}`;
         copyFailures.push(why);
         this.session.problems.push(why);
       }
+      counted.push(name);
       const at = this.ctx.now().toISOString();
       entries.push({
         at,
@@ -204,7 +234,7 @@ export class Recorder {
       });
     }
     this.store.appendTimeline(this.session.id, entries);
-    return { listed: measured(fresh, `${now.source}; compared with the list at the start`), copyFailures };
+    return { listed: measured(counted, `${now.source}; compared with the list at the start; bundle id checked in each copied log`), copyFailures };
   }
 
   /** Stops the timer and the console without closing the session (the server is shutting down). */
@@ -223,5 +253,21 @@ export class Recorder {
 
   private save(): void {
     this.store.write(this.session);
+  }
+}
+
+/** The bundle id in a crash report's first line (an .ips header), if it has one. */
+function crashBundleId(file: string): string | undefined {
+  try {
+    const handle = fs.openSync(file, "r");
+    const buffer = Buffer.alloc(64 * 1024);
+    const length = fs.readSync(handle, buffer, 0, buffer.length, 0);
+    fs.closeSync(handle);
+    const firstLine = buffer.subarray(0, length).toString("utf8").split("\n")[0] ?? "";
+    const header: unknown = JSON.parse(firstLine);
+    const bundleId = typeof header === "object" && header !== null ? (header as { bundleID?: unknown }).bundleID : undefined;
+    return typeof bundleId === "string" ? bundleId : undefined;
+  } catch {
+    return undefined;
   }
 }

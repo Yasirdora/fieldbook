@@ -11,6 +11,9 @@ import { DeviceChoiceError, resolveDevice } from "../devices/registry.ts";
 import type { Device, Target } from "../devices/types.ts";
 import { LAUNCH_ARGUMENT_SETS } from "../allowlist.ts";
 import { describe, missing, type Labeled } from "../labels.ts";
+import type { ExecResult } from "../exec.ts";
+import { failureText } from "../runner.ts";
+import { recorderFor } from "../session/open.ts";
 import { Recorder, type PullReport } from "../session/recorder.ts";
 import { sessionMetrics } from "../session/metrics.ts";
 import { SessionStore, type SessionFile } from "../session/store.ts";
@@ -61,6 +64,10 @@ export async function sessionStart(ctx: Context, input: SessionStartInput): Prom
     if (error instanceof DeviceChoiceError) return notStarted(`${error.message} Nothing was started.`);
     throw error;
   }
+  const busy = recordingSession(new SessionStore(ctx.home), device, input.bundleId);
+  if (busy) {
+    return notStarted(`Session ${busy} is already recording ${input.bundleId} on ${device.name}. Stop it first (session_stop), then start again.`, device);
+  }
   const refusal = await checkReady(device, input);
   if (refusal) return notStarted(refusal, device);
   const app = await device.appStatus(input.bundleId);
@@ -72,6 +79,14 @@ export async function sessionStart(ctx: Context, input: SessionStartInput): Prom
     );
   }
   return startRecording(ctx, device, input, app);
+}
+
+/** The id of a session that is still recording this app on this device, if any. */
+function recordingSession(store: SessionStore, device: Device, bundleId: string): string | undefined {
+  return store
+    .list()
+    .map((id) => store.read(id))
+    .find((session) => session.status === "recording" && session.target === device.target && session.device.id === device.id && session.bundleId === bundleId)?.id;
 }
 
 /** A reason not to start, or undefined when the device is ready. */
@@ -132,7 +147,7 @@ async function startRecording(
   store.write(session);
   const recorder = new Recorder(ctx, store, device, session);
   ctx.recorders.set(id, recorder);
-  const relaunchLine = input.relaunch ? relaunch(recorder, input) : "The app was not relaunched; Fieldbook records from now.";
+  const relaunchLine = input.relaunch ? await relaunch(ctx, recorder, input) : "The app was not relaunched; Fieldbook records from now.";
   const firstPull = await recorder.pullOnce();
   if (ctx.autoPull) recorder.startTimer();
   const current = recorder.current;
@@ -148,10 +163,21 @@ async function startRecording(
   return { summary: lines.join("\n"), data: { started: true, session: { id, dir: store.dir(id) }, device: { target: device.target, id: device.id, name: device.name }, firstPull } };
 }
 
-function relaunch(recorder: Recorder, input: SessionStartInput): string {
+/** How long a relaunch may take to fail before Fieldbook calls it started. */
+const RELAUNCH_SETTLE_MS = 2_000;
+
+async function relaunch(ctx: Context, recorder: Recorder, input: SessionStartInput): Promise<string> {
   const args = input.fullText ? (LAUNCH_ARGUMENT_SETS[1] as readonly string[]) : [];
   const launch = recorder.startConsole(args);
   if (!launch.started) return `The app was NOT relaunched: ${launch.reason}`;
+  let ended: ExecResult | undefined;
+  void launch.done.then((result) => {
+    ended = result;
+  });
+  await ctx.sleep(RELAUNCH_SETTLE_MS);
+  await new Promise((resolve) => setImmediate(resolve));
+  const failed = ended as ExecResult | undefined;
+  if (failed && !failed.aborted && failed.code !== 0) return `The app was NOT relaunched: ${failureText(failed)}`;
   const session = recorder.current;
   session.relaunched = true;
   const text = input.fullText ? " View text is stored in full (-FieldbookText full)." : "";
@@ -172,7 +198,7 @@ export async function sessionStop(ctx: Context, input: { session: string }): Pro
   if (session.status === "stopped") {
     return { summary: `Session ${session.id} was already stopped at ${session.endedAt}.`, data: { session: session.id, status: "stopped" } };
   }
-  const recorder = ctx.recorders.get(session.id) ?? (await reopen(ctx, store, session));
+  const recorder = await recorderFor(ctx, store, session);
   const { pull, newCrashLogs, copyFailures } = await recorder.stop();
   const stopped = recorder.current;
   const metrics = sessionMetrics(stopped, store.readTimeline(stopped.id), ctx.config.rules);
@@ -195,15 +221,4 @@ function crashLine(crashes: Labeled<string[]>, copyFailures: string[]): string {
   if (names.length === 0) return "Crashes: no new crash log of this app (measured).";
   const failed = copyFailures.length > 0 ? ` ${copyFailures.join("; ")}.` : "";
   return `Crashes: ${plural(names.length, "new crash log")} (measured): ${names.join(", ")}.${failed}`;
-}
-
-/** A session recording in an earlier server process: find its device again to stop it. */
-async function reopen(ctx: Context, store: SessionStore, session: SessionFile): Promise<Recorder> {
-  try {
-    const device = await resolveDevice(ctx, session.target, session.device.id);
-    return new Recorder(ctx, store, device, session);
-  } catch (error) {
-    if (error instanceof DeviceChoiceError) throw new ToolError(`Cannot stop ${session.id}: ${error.message}`);
-    throw error;
-  }
 }

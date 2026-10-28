@@ -71,7 +71,8 @@ export interface Device {
   copyCrashLog(name: string, destinationDir: string): Promise<Labeled<string>>;
 }
 
-/** Crash log names belong to an executable when they start with "<executable>-". */
+/** A crash log of an executable is named "<executable>-YYYY-MM-DD-HHMMSS[.n].ips" (or .crash). */
 export function isCrashLogOf(name: string, executable: string): boolean {
-  return name.startsWith(`${executable}-`) && /\.(ips|crash)$/.test(name);
+  const escaped = executable.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return new RegExp(`^${escaped}-\\d{4}-\\d{2}-\\d{2}-\\d{6}(\\.\\d+)?\\.(ips|crash)$`).test(name);
 }

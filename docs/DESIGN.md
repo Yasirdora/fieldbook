@@ -60,7 +60,7 @@ Every claim below carries one tag:
 3. **The MCP server API.** `McpServer.registerTool(name, {title, description, inputSchema}, handler)`
    with zod shapes, and `StdioServerTransport`. [read: `server/node_modules/@modelcontextprotocol/sdk/README.md`
    and `dist/esm/server/mcp.d.ts` of version 1.32.2] Tested end to end with the SDK's
-   `InMemoryTransport` and by starting `node src/main.ts` over stdio. [measured: `npm test` → 95 pass]
+   `InMemoryTransport` and by starting `node src/main.ts` over stdio. [measured: `npm test` → 122 pass]
 4. **Each answer is a summary, then JSON.** Two text blocks. A mistake the caller can fix (unknown
    session, refused command) is an MCP error with a plain sentence. (`server/src/mcp.ts`)
 5. **Evidence labels on every value:** measured, captured, rendered, reported, missing — never
@@ -83,7 +83,7 @@ Every claim below carries one tag:
     costs little. `copy to` skips unchanged files [measured]; whether `copy from`
     does is unknown [guess G2]. The server finds the mailbox folder inside the copy whether devicectl
     copies the folder itself or its contents [guess G2; both forms are tested].
-11. **Ingest is idempotent.** It remembers the highest event `seq` per run and the marks it filed
+11. **Ingest is idempotent.** It remembers, per run, the highest event `seq` and any gaps below it (so events copied across a log rotation are not lost), and the marks it filed
     (`raw/ingest.json`), so a second pull files nothing twice. Events older than the session start
     (minus 2 s for clock difference) are left out. [measured: `session.test.ts`]
 12. **Marks come from mark events; the outbox only drives the ack.** The mark event is written in
@@ -94,7 +94,9 @@ Every claim below carries one tag:
     app's snapshot (`NSWindow.windowNumber`), so the Mac capture follows the snapshot by a fraction of a
     second. [guess G9: that `windowNumber` is the id `screencapture -l` wants]
 14. **Crash pickup by difference.** At session start the server lists the crash logs; at stop it
-    copies the new ones whose names start with `<executable>-`. Phone: `systemCrashLogs` through
+    copies the new ones named exactly `<executable>-YYYY-MM-DD-HHMMSS[.n].ips` (or `.crash`), and drops
+    a copied log whose first line (the .ips header) names another bundle id. A listed log that cannot
+    be copied still counts, with the reason. Phone: `systemCrashLogs` through
     devicectl. Simulator and Mac apps: the Mac's `~/Library/Logs/DiagnosticReports`. [guess G10 for
     the simulator location] A crash count that could not be measured is *missing*, never 0.
 15. **compare never gives one score.** Each rule shows both numbers and pass, warn, fail — or
@@ -104,53 +106,62 @@ Every claim below carries one tag:
 16. **evidence.json is self-contained** (the numbers, labels, thresholds and verdicts are inside it)
     and **verifiable** (every cited file with its sha256). It carries the device model and OS but no
     device name or id.
-17. **Mac relaunch is not offered.** No allowed command starts a Mac app with its console; the developer
+17. **The mailbox is untrusted data.** An app bug could write anything into it. Names from it become
+    paths only when they are safe names; only regular files are copied (no folders, no links); every
+    event payload is checked field by field; one bad event or file becomes a `problem` entry and the
+    pull goes on. A mark's command id is trusted only in this session's own form (`<session id>-<n>`).
+    The ack covers only outbox items whose snapshot and file are safely in the session (an item may
+    hold it back for at most 5 pulls). [measured: `hostile-mailbox.test.ts`, `recording-robustness.test.ts`]
+18. **One recording per app and device**, and one recorder per session: `session_start` refuses a
+    second session while one records the same app on the same device; overlapping calls after a
+    server restart share one recorder; calls after `session_stop` do nothing.
+19. **Mac relaunch is not offered.** No allowed command starts a Mac app with its console; the developer
     starts it from Xcode.
 
 ### The kit
 
-18. **FieldbookCore is platform-neutral** (Foundation only), so it could build and be tested on Linux.
+20. **FieldbookCore is platform-neutral** (Foundation only), so it could build and be tested on Linux.
     It has its own SHA-256, because CryptoKit does not exist on Linux and swift-crypto would be a
     dependency. [measured: a line-by-line JavaScript port of `SHA256.swift` matched `node:crypto` on
     8 of 8 inputs; its 64 round constants match]
-19. **All mailbox file work runs on one actor** (`Mailbox`), never on the main thread. Files are
+21. **All mailbox file work runs on one actor** (`Mailbox`), never on the main thread. Files are
     written to a hidden temporary file and renamed. Snapshot folders are written hidden and renamed
     whole, so the Mac never copies half a snapshot. Events are appended; a reader ignores a last line
     without a line break.
-20. **Text is fingerprinted, not stored.** `{length, sha256_8}` by default; full text only with the
+22. **Text is fingerprinted, not stored.** `{length, sha256_8}` by default; full text only with the
     launch argument `-FieldbookText full`. `find` and `compare` still work on fingerprints: the server
     hashes the query.
-21. **Tree walks stop at 5000 nodes** and say so (`truncated`). One generic walk (`TreeWalk`) serves
+23. **Tree walks stop at 5000 nodes** and say so (`truncated`). One generic walk (`TreeWalk`) serves
     UIKit views, AppKit views, accessibility elements and test fakes.
-22. **Darwin notifications through `CFNotificationCenterGetDarwinNotifyCenter`.** They are system-wide
+24. **Darwin notifications through `CFNotificationCenterGetDarwinNotifyCenter`.** They are system-wide
     and are delivered only while the main thread's run loop runs in a common mode, so the callback
     arrives on the main thread. [read: https://developer.apple.com/documentation/corefoundation/cfnotificationcentergetdarwinnotifycenter()]
-23. **Logs from `OSLogStore(scope: .currentProcessIdentifier)`**, read every 2 s off the main actor.
+25. **Logs from `OSLogStore(scope: .currentProcessIdentifier)`**, read every 2 s off the main actor.
     The initializer throws; `currentProcessIdentifier` exists on iOS 15+ and macOS 12+.
     [read: https://developer.apple.com/documentation/oslog/oslogstore/init(scope:) and
     https://developer.apple.com/documentation/oslog/oslogstore/scope/currentprocessidentifier]
     Whether it returns this process's entries on iOS 27 in a Debug build is not known [guess G5].
-24. **MetricKit payloads are stored as `jsonRepresentation()`.** Diagnostic payloads arrive
+26. **MetricKit payloads are stored as `jsonRepresentation()`.** Diagnostic payloads arrive
     immediately on iOS 15+ and macOS 12+; metric payloads at most once a day (on macOS only from
     macOS 26). [read: https://developer.apple.com/documentation/metrickit/mxmetricmanager,
     https://developer.apple.com/documentation/metrickit/mxmetricpayload/jsonrepresentation()]
     When they arrive in a Debug build is not known [guess G8].
-25. **Shake marks use `CMMotionManager` accelerometer updates** at about 10 Hz, only while the app is
+27. **Shake marks use `CMMotionManager` accelerometer updates** at about 10 Hz, only while the app is
     active. CMMotionManager exists on iOS, iPadOS, Mac Catalyst, visionOS and watchOS — **not on
     macOS** — so the Mac uses the key ⌃⌥⌘M through `NSEvent.addLocalMonitorForEvents`.
     [read: https://developer.apple.com/documentation/coremotion/cmmotionmanager,
     https://developer.apple.com/documentation/appkit/nsevent/addlocalmonitorforevents(matching:handler:)]
     That accelerometer access needs no permission prompt is not checked [guess G7].
-26. **The rendered screen** comes from `drawHierarchy(in:afterScreenUpdates:)` on iOS and
+28. **The rendered screen** comes from `drawHierarchy(in:afterScreenUpdates:)` on iOS and
     `cacheDisplay(in:to:)` on macOS, and is labelled *rendered*. Apple notes `drawHierarchy` is
     slower than `snapshotView`. [read: https://developer.apple.com/documentation/uikit/uiview/drawhierarchy(in:afterscreenupdates:),
     https://developer.apple.com/documentation/appkit/nsview/cachedisplay(in:to:)]
     How much it differs from the real screen under Liquid Glass is not known [guess G4].
-27. **The accessibility tree is recorded next to the view tree**, with the source of each node,
+29. **The accessibility tree is recorded next to the view tree**, with the source of each node,
     because SwiftUI content may appear only there, or not at all, inside the app [guess G3].
     AppKit: `accessibilityChildren()` (macOS 10.10+).
     [read: https://developer.apple.com/documentation/appkit/nsaccessibilityprotocol/accessibilitychildren()]
-28. **Hangs:** a watchdog thread pings the main queue every 50 ms and records stalls of 250 ms or
+30. **Hangs:** a watchdog thread pings the main queue every 50 ms and records stalls of 250 ms or
     more; it pauses while the app is inactive and resets when it becomes active. **Memory:**
     `phys_footprint` from `task_info(TASK_VM_INFO)` every 2 s. **Launch:** process start time from
     `sysctl(KERN_PROC_PID)` to the first `didBecomeActive`. [guess G6 for the watchdog's idle cost
@@ -159,7 +170,7 @@ Every claim below carries one tag:
 
 ## 3. What was measured here, and what was not
 
-Measured here (Linux): everything in `server/` (95 tests, `tsc` clean), the release-check script's logic
+Measured here (Linux): everything in `server/` (122 tests, `tsc` clean), the release-check script's logic
 on fake `.app` folders, and the SHA-256 logic (through a JavaScript port).
 
 **Not measured here, and why:**

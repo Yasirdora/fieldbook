@@ -3,6 +3,18 @@ import fs from "node:fs";
 import path from "node:path";
 import { parseSnapshotInfo, parseTree } from "../format.ts";
 
+/** The key window's number in one tree.json (macOS snapshots only). */
+export function windowNumberIn(treeFile: string): number | undefined {
+  try {
+    const tree = parseTree(fs.readFileSync(treeFile, "utf8"));
+    const window = tree.windows.find((candidate) => candidate.isKey && typeof candidate.number === "number") ??
+      tree.windows.find((candidate) => typeof candidate.number === "number");
+    return typeof window?.number === "number" ? window.number : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 export function latestWindowNumber(mailboxDir: string): number | undefined {
   const snapshots = path.join(mailboxDir, "snapshots");
   if (!fs.existsSync(snapshots)) return undefined;

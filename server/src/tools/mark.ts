@@ -10,14 +10,14 @@ import fs from "node:fs";
 import path from "node:path";
 import type { Context } from "../context.ts";
 import { findMailboxRoot } from "../devices/mailboxFolder.ts";
-import { DeviceChoiceError, resolveDevice } from "../devices/registry.ts";
 import { missing, type Labeled } from "../labels.ts";
 import { attachCapture, capturePath, findMarkByCommand, isSafeName, readMarkFile } from "../session/ingest.ts";
 import { findOutboxItem } from "../session/outbox.ts";
 import { Recorder } from "../session/recorder.ts";
 import { SessionStore } from "../session/store.ts";
 import { markTitle } from "../session/text.ts";
-import { latestWindowNumber } from "../session/windows.ts";
+import { windowNumberIn } from "../session/windows.ts";
+import { recorderFor } from "../session/open.ts";
 import { writeJsonAtomic } from "../fsx.ts";
 import { ToolError, type ToolAnswer } from "./common.ts";
 
@@ -32,26 +32,13 @@ export async function activeRecorder(ctx: Context, sessionId: string): Promise<R
   const store = new SessionStore(ctx.home);
   const session = store.read(sessionId);
   if (session.status === "stopped") throw new ToolError(`Session ${session.id} is stopped. Start a new session first.`);
-  const existing = ctx.recorders.get(session.id);
-  if (existing) return existing;
-  try {
-    const device = await resolveDevice(ctx, session.target, session.device.id);
-    const recorder = new Recorder(ctx, store, device, session);
-    ctx.recorders.set(session.id, recorder);
-    if (ctx.autoPull) recorder.startTimer();
-    return recorder;
-  } catch (error) {
-    if (error instanceof DeviceChoiceError) throw new ToolError(`Cannot reach the device of ${session.id}: ${error.message}`);
-    throw error;
-  }
+  return recorderFor(ctx, store, session);
 }
 
 /** Takes a real screenshot for a command and leaves it where ingest files it. */
-async function capture(ctx: Context, recorder: Recorder, commandId: string): Promise<Labeled<string>> {
+async function capture(ctx: Context, recorder: Recorder, commandId: string, windowNumber?: number): Promise<Labeled<string>> {
   const file = capturePath(recorder.dir, commandId);
   fs.mkdirSync(path.dirname(file), { recursive: true });
-  const root = findMailboxRoot(path.join(recorder.dir, "raw", "pull"));
-  const windowNumber = recorder.device.target === "mac" && root ? latestWindowNumber(root) : undefined;
   const shot = await recorder.device.captureScreen(file, windowNumber);
   if (shot.label === "captured") {
     writeJsonAtomic(`${file.slice(0, -4)}.json`, { source: shot.source, at: ctx.now().toISOString() });
@@ -97,7 +84,8 @@ export async function markTool(ctx: Context, input: { session: string; name?: st
   const isMac = recorder.device.target === "mac";
   let shot = isMac ? missing<string>("taken after the app's snapshot") : await capture(ctx, recorder, command.id);
   const filed = await waitFor(ctx, recorder, () => findMarkByCommand(recorder.ingestState, command.id));
-  if (isMac && filed) shot = await capture(ctx, recorder, command.id);
+  // On the Mac, the window to capture is the one in this mark's own snapshot.
+  if (isMac && filed) shot = await capture(ctx, recorder, command.id, windowNumberIn(path.join(recorder.dir, filed.dir, "tree.json")));
   if (!filed) {
     const kept = shot.label === "captured" ? `The screen was captured (raw/captures/${command.id}.png); the mark will be filed with it if the app answers later.` : `No real capture: ${shot.reason}.`;
     return {
@@ -149,7 +137,7 @@ export async function snapshotTool(ctx: Context, input: { session: string; parts
       data: { snapshotId: null, dir: null, commandId: command.id, capture: shot },
     };
   }
-  if (wantScreen && isMac) shot = await capture(ctx, recorder, command.id);
+  if (wantScreen && isMac) shot = await capture(ctx, recorder, command.id, windowNumberIn(path.join(recorder.dir, "snapshots", snapshotId, "tree.json")));
   const folder = path.join(recorder.dir, "snapshots", snapshotId);
   const captureFile = capturePath(recorder.dir, command.id);
   if (shot.label === "captured" && fs.existsSync(captureFile)) fs.copyFileSync(captureFile, path.join(folder, "screen-captured.png"));
