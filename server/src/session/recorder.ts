@@ -94,16 +94,16 @@ export class Recorder {
       this.save();
       return { ok: false, problem: this.session.pulls.lastProblem, entries: 0, marksFiled: [] };
     }
-    const result = ingest(pulled.value, this.dir, this.session, this.state);
+    const result = ingest(pulled.value, this.dir, this.session, this.state, this.ctx.now());
     this.store.appendTimeline(this.session.id, result.entries);
     saveIngestState(this.dir, this.state);
     this.session.pulls.count++;
     this.session.pulls.lastProblem = result.helloProblem ?? null;
     this.applyHello(result);
     this.save();
-    if (result.outboxMax > this.session.commands.ackedUpTo) {
-      await this.send("ack", { upTo: result.outboxMax });
-      this.session.commands.ackedUpTo = result.outboxMax;
+    if (result.ackUpTo > this.session.commands.ackedUpTo) {
+      await this.send("ack", { upTo: result.ackUpTo });
+      this.session.commands.ackedUpTo = result.ackUpTo;
       this.save();
     }
     return { ok: true, entries: result.entries.length, marksFiled: result.marksFiled };

@@ -159,16 +159,41 @@ export function completeLines(text: string): string[] {
   return parts.filter((line) => line.trim().length > 0);
 }
 
+type Fields = Record<string, unknown>;
+
+const isText = (value: unknown): value is string => typeof value === "string";
+const isOptionalText = (value: unknown) => value === undefined || value === null || typeof value === "string";
+const isCount = (value: unknown): value is number => typeof value === "number" && Number.isFinite(value) && value >= 0;
+const isTime = (value: unknown) => typeof value === "string" && !Number.isNaN(Date.parse(value));
+const isOneOf = (value: unknown, allowed: readonly string[]) => typeof value === "string" && allowed.includes(value);
+
+/** What each event kind's payload must hold. An event that does not match is skipped and counted. */
+const PAYLOAD_RULES: Record<EventKind, (payload: Fields) => boolean> = {
+  launch: (p) => isCount(p.ms),
+  lifecycle: (p) => isOneOf(p.state, ["active", "inactive", "background"]),
+  log: (p) => isText(p.level) && isText(p.subsystem) && isText(p.category) && isText(p.message) && typeof p.cut === "boolean" && isTime(p.logTime),
+  hang: (p) => isTime(p.start) && isCount(p.ms),
+  memory: (p) => isCount(p.footprint) && isCount(p.peak),
+  mark: (p) =>
+    isText(p.id) && isCount(p.number) && isOptionalText(p.name) && isOneOf(p.source, ["shake", "key", "command"]) && isText(p.snapshotId) && isOptionalText(p.commandId),
+  note: (p) => isText(p.markId) && isText(p.text),
+  snapshot: (p) =>
+    isText(p.id) && isOneOf(p.reason, ["mark", "command"]) && isCount(p.ms) && isCount(p.nodes) && isCount(p.axNodes) && typeof p.truncated === "boolean",
+  command: (p) => isText(p.id) && isText(p.name) && isOneOf(p.via, ["notification", "poll"]),
+  metrickit: (p) => isText(p.file) && isText(p.type),
+  problem: (p) => isText(p.where) && isText(p.message),
+};
+
 function asEvent(value: unknown): MailboxEvent | undefined {
-  if (typeof value !== "object" || value === null) return undefined;
-  const event = value as Record<string, unknown>;
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return undefined;
+  const event = value as Fields;
   if (event.formatVersion !== FORMAT_VERSION) return undefined;
-  if (typeof event.runId !== "string" || typeof event.seq !== "number" || typeof event.time !== "string") return undefined;
+  if (!isText(event.runId) || !Number.isSafeInteger(event.seq) || (event.seq as number) < 1 || !isTime(event.time)) return undefined;
   const kind = event.kind;
   if (typeof kind !== "string" || !(EVENT_KINDS as readonly string[]).includes(kind)) return undefined;
   const payload = event[kind];
-  if (typeof payload !== "object" || payload === null) return undefined;
-  return value as MailboxEvent;
+  if (typeof payload !== "object" || payload === null || Array.isArray(payload)) return undefined;
+  return PAYLOAD_RULES[kind as EventKind](payload as Fields) ? (value as MailboxEvent) : undefined;
 }
 
 /** Reads events.jsonl text. Lines that are broken, of a newer format or of an unknown kind are counted, not thrown. */

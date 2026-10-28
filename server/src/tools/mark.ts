@@ -12,7 +12,7 @@ import type { Context } from "../context.ts";
 import { findMailboxRoot } from "../devices/mailboxFolder.ts";
 import { DeviceChoiceError, resolveDevice } from "../devices/registry.ts";
 import { missing, type Labeled } from "../labels.ts";
-import { attachCapture, capturePath, readMarkFile } from "../session/ingest.ts";
+import { attachCapture, capturePath, findMarkByCommand, isSafeName, readMarkFile } from "../session/ingest.ts";
 import { findOutboxItem } from "../session/outbox.ts";
 import { Recorder } from "../session/recorder.ts";
 import { SessionStore } from "../session/store.ts";
@@ -96,10 +96,7 @@ export async function markTool(ctx: Context, input: { session: string; name?: st
   }
   const isMac = recorder.device.target === "mac";
   let shot = isMac ? missing<string>("taken after the app's snapshot") : await capture(ctx, recorder, command.id);
-  const filed = await waitFor(ctx, recorder, () => {
-    const markId = recorder.ingestState.marksByCommand[command.id];
-    return markId ? recorder.ingestState.marks[markId] : undefined;
-  });
+  const filed = await waitFor(ctx, recorder, () => findMarkByCommand(recorder.ingestState, command.id));
   if (isMac && filed) shot = await capture(ctx, recorder, command.id);
   if (!filed) {
     const kept = shot.label === "captured" ? `The screen was captured (raw/captures/${command.id}.png); the mark will be filed with it if the app answers later.` : `No real capture: ${shot.reason}.`;
@@ -111,7 +108,7 @@ export async function markTool(ctx: Context, input: { session: string; name?: st
   attachCapture(recorder.dir, recorder.ingestState, command.id);
   const markFile = readMarkFile(path.join(recorder.dir, filed.dir));
   const summary = `${capitalized(markTitle(markFile))} is filed in ${filed.dir}: ${markPieces(markFile, shot).join(", ")}.`;
-  return { summary, data: { filed: true, commandId: command.id, mark: filed, capture: shot } };
+  return { summary, data: { filed: true, commandId: command.id, mark: { n: filed.n, dir: filed.dir }, capture: shot } };
 }
 
 function markPieces(markFile: ReturnType<typeof readMarkFile>, shot: Labeled<string>): string[] {
@@ -143,8 +140,8 @@ export async function snapshotTool(ctx: Context, input: { session: string; parts
   const snapshotId = await waitFor(ctx, recorder, () => {
     const root = findMailboxRoot(path.join(recorder.dir, "raw", "pull"));
     const item = root ? findOutboxItem(root, command.id) : undefined;
-    const id = item?.snapshotId ?? undefined;
-    return id && fs.existsSync(path.join(recorder.dir, "snapshots", id, "snapshot.json")) ? id : undefined;
+    const id = item?.snapshotId;
+    return isSafeName(id) && fs.existsSync(path.join(recorder.dir, "snapshots", id, "snapshot.json")) ? id : undefined;
   });
   if (!snapshotId) {
     return {

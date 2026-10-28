@@ -46,3 +46,13 @@ constants match.
 | 19 | `node --test test/kit-rules.test.ts` | 4 | green: 4 pass | Scans `kit/Sources` for banned constructs. Honest note: no red run — it checks code that already followed the rules; its last test proves the scan finds a banned construct in a sample. |
 | 20 | `node --test test/pixel-diff.test.ts` | 5 | green: 5 pass | Honest note: the test and `scripts/pixel-diff.ts` were written together, so there was no red run. `tsc` then failed because `scripts/` had no `"type": "module"`; fixed with `scripts/package.json`. |
 | 21 | `npm test` | 100 | green: 100 pass | `tsc` clean. |
+
+## Server review fixes
+
+An adversarial review (3 finders, 3 skeptics) read the server. These rows record the fixes.
+
+| # | Command (in `server/`) | Tests | Result | Why it was red / note |
+|---|---|---|---|---|
+| 22 | `node --test test/hostile-mailbox.test.ts` | 7 | red: 0 pass, 7 fail | Untrusted mailbox data: a `..` snapshot id let the snapshot tool write outside the session; a `..` command id filed a foreign picture; a folder or link in a snapshot, a `constructor` mark id, or one malformed event broke or skewed the pull; a stray outbox file name set the ack; device id and name reached evidence.json. |
+| 23 | same, after the fixes | 7 | green: 7 pass | |
+| 24 | `npm test` | 107 | green: 107 pass | `tsc` clean. |

@@ -112,11 +112,35 @@ function comparisonLine(target: string, rules: RuleResult[]): string {
   return `measured on the ${target}: crashes ${pair("crashes")}, launch ${pair("launchMedian")} ms, hangs ${pair("hangs")}, peak memory ${pair("peakMemory", (v) => (v / 1048576).toFixed(1))} MB (rules: ${verdicts})`;
 }
 
-/** Writes the file with no absolute path of this Mac in it. */
-function writeEvidence(ctx: Context, file: string, evidence: EvidenceFile): void {
-  let text = `${JSON.stringify(evidence, null, 2)}\n`;
-  text = text.split(ctx.home).join("$FIELDBOOK_HOME").split(ctx.macHome).join("~");
-  writeFileAtomic(file, text);
+/**
+ * Replaces private words in every free text of the record: this Mac's folders, the device ids
+ * and names of the cited sessions, and this Mac's name. Measured values (`value`) and the
+ * cited files are left as they are.
+ */
+function scrub(value: unknown, replacements: [string, string][], key = ""): unknown {
+  if (key === "value" || key === "files") return value;
+  if (typeof value === "string") {
+    return replacements.reduce((text, [secret, stand]) => (secret.length >= 3 ? text.split(secret).join(stand) : text), value);
+  }
+  if (Array.isArray(value)) return value.map((item) => scrub(item, replacements));
+  if (typeof value === "object" && value !== null) {
+    return Object.fromEntries(Object.entries(value).map(([name, item]) => [name, scrub(item, replacements, name)]));
+  }
+  return value;
+}
+
+/** Writes the file with no absolute path, device id, device name or Mac name in its texts. */
+function writeEvidence(ctx: Context, store: SessionStore, file: string, evidence: EvidenceFile): void {
+  const replacements: [string, string][] = [
+    [ctx.home, "$FIELDBOOK_HOME"],
+    [ctx.macHome, "~"],
+    [ctx.hostName, "<this Mac>"],
+  ];
+  for (const session of evidence.sessions) {
+    const device = store.read(session.id).device;
+    replacements.push([device.id, "<device id>"], [device.name, "<device name>"]);
+  }
+  writeFileAtomic(file, `${JSON.stringify(scrub(evidence, replacements), null, 2)}\n`);
 }
 
 export async function evidenceTool(ctx: Context, input: { session?: string; comparison?: string }): Promise<ToolAnswer<{ path: string; evidence: EvidenceFile }>> {
@@ -146,7 +170,7 @@ export async function evidenceTool(ctx: Context, input: { session?: string; comp
       files: cite(ctx.home, files),
     };
   }
-  writeEvidence(ctx, file, evidence);
+  writeEvidence(ctx, store, file, evidence);
   const relative = path.relative(ctx.home, file);
   const verdicts = evidence.rules.length > 0 ? `${evidence.rules.length} rules (${["fail", "warn", "pass", "unchecked"].map((v) => `${evidence.rules.filter((r) => r.verdict === v).length} ${v}`).join(", ")}), ` : "";
   const summary = [

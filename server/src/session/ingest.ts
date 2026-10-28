@@ -2,10 +2,14 @@
  * Ingest: turns the copied mailbox into the session bundle. New events go to
  * timeline.jsonl; marks get their own folder; snapshots and MetricKit files are copied.
  * Ingest remembers what it has seen (raw/ingest.json), so pulling twice files nothing twice.
+ *
+ * Everything in the mailbox copy is untrusted: names from it are checked before they become
+ * paths, only regular files are copied (no folders, no links), and one bad event or file is
+ * recorded as a problem and skipped — the rest of the pull goes on.
  */
 import fs from "node:fs";
 import path from "node:path";
-import { parseEvents, parseHello, parseSnapshotInfo, type Hello, type MailboxEvent, type SnapshotInfo } from "../format.ts";
+import { parseEvents, parseHello, parseOutboxItem, parseSnapshotInfo, type Hello, type MailboxEvent, type OutboxItem, type SnapshotInfo } from "../format.ts";
 import { readJson, readTextIfExists, slugify, writeJsonAtomic } from "../fsx.ts";
 import { captured, measured, missing, rendered, reported, type Labeled } from "../labels.ts";
 import type { SessionFile, TimelineEntry } from "./store.ts";
@@ -13,32 +17,55 @@ import type { SessionFile, TimelineEntry } from "./store.ts";
 /** Events may be up to this much older than the session start (the two clocks can differ a little). */
 export const CLOCK_MARGIN_MS = 2_000;
 
+/** How many pulls an outbox item may hold back the ack while its files are missing. */
+export const ACK_PATIENCE = 5;
+
+/** A name from the mailbox that may become one part of a path. */
+export function isSafeName(name: unknown): name is string {
+  return typeof name === "string" && /^[A-Za-z0-9._-]{1,200}$/.test(name) && !name.startsWith(".");
+}
+
 type Pending =
   | { kind: "markSnapshot"; snapshotId: string; markId: string }
   | { kind: "snapshot"; snapshotId: string }
   | { kind: "metrickit"; file: string };
 
+/** How far ingest has read one run's events, and the sequence numbers it has not seen yet. */
+interface RunProgress {
+  runId: string;
+  highest: number;
+  /** Ranges [from, to] below `highest` that were skipped, for example across a file rotation. */
+  gaps: [number, number][];
+}
+
+interface FiledMark {
+  id: string;
+  n: number;
+  dir: string;
+  commandId: string | null;
+}
+
 export interface IngestState {
-  formatVersion: 1;
-  /** Highest event seq seen, per run. */
-  eventSeq: Record<string, number>;
-  /** App mark id → the session's mark number and folder. */
-  marks: Record<string, { n: number; dir: string }>;
-  /** Command id → app mark id, for captures that arrive after the mark. */
-  marksByCommand: Record<string, string>;
+  formatVersion: 2;
+  runs: RunProgress[];
+  marks: FiledMark[];
   nextMark: number;
-  /** Files the event named but the copy did not have yet. Tried again on the next pull. */
+  /** Files the events named but the copy did not have yet. Tried again on the next pull. */
   pending: Pending[];
   /** Notes whose mark was not filed yet. */
   pendingNotes: { markId: string; text: string }[];
+  /** Snapshot ids and MetricKit files that are safely in the session (the ack waits for them). */
+  copied: { snapshots: string[]; files: string[] };
+  /** Outbox items ("runId:seq") holding back the ack, and for how many pulls. */
+  ackWaits: { key: string; pulls: number }[];
   skippedLines: number;
 }
 
 export interface IngestResult {
   entries: TimelineEntry[];
   marksFiled: number[];
-  /** Highest outbox seq in the copied mailbox (for the ack). */
-  outboxMax: number;
+  /** Every outbox item up to this seq is safely filed, so the app may delete it. */
+  ackUpTo: number;
   hello?: Hello;
   helloProblem?: string;
 }
@@ -69,7 +96,17 @@ const SNAPSHOT_PARTS: { part: Exclude<PartName, "screenCaptured" | "note">; file
 ];
 
 export function newIngestState(): IngestState {
-  return { formatVersion: 1, eventSeq: {}, marks: {}, marksByCommand: {}, nextMark: 1, pending: [], pendingNotes: [], skippedLines: 0 };
+  return {
+    formatVersion: 2,
+    runs: [],
+    marks: [],
+    nextMark: 1,
+    pending: [],
+    pendingNotes: [],
+    copied: { snapshots: [], files: [] },
+    ackWaits: [],
+    skippedLines: 0,
+  };
 }
 
 function statePath(sessionDir: string): string {
@@ -90,9 +127,12 @@ export function capturePath(sessionDir: string, commandId: string): string {
   return path.join(sessionDir, "raw", "captures", `${commandId}.png`);
 }
 
-export function ingest(root: string, sessionDir: string, session: SessionFile, state: IngestState): IngestResult {
-  const context = new IngestRun(root, sessionDir, session, state);
-  return context.run();
+export function findMarkByCommand(state: IngestState, commandId: string): FiledMark | undefined {
+  return state.marks.find((mark) => mark.commandId === commandId);
+}
+
+export function ingest(root: string, sessionDir: string, session: SessionFile, state: IngestState, now: Date): IngestResult {
+  return new IngestRun(root, sessionDir, session, state, now).run();
 }
 
 /** One ingest pass. */
@@ -103,16 +143,18 @@ class IngestRun {
   private readonly root: string;
   private readonly sessionDir: string;
   private readonly state: IngestState;
+  private readonly now: Date;
 
-  constructor(root: string, sessionDir: string, session: SessionFile, state: IngestState) {
+  constructor(root: string, sessionDir: string, session: SessionFile, state: IngestState, now: Date) {
     this.root = root;
     this.sessionDir = sessionDir;
     this.state = state;
+    this.now = now;
     this.startedMs = Date.parse(session.startedAt);
   }
 
   run(): IngestResult {
-    const result: IngestResult = { entries: this.entries, marksFiled: this.marksFiled, outboxMax: this.outboxMax() };
+    const result: IngestResult = { entries: this.entries, marksFiled: this.marksFiled, ackUpTo: 0 };
     const helloText = readTextIfExists(path.join(this.root, "hello.json"));
     if (helloText !== undefined) {
       try {
@@ -121,25 +163,63 @@ class IngestRun {
         result.helloProblem = (error as Error).message;
       }
     }
-    for (const event of this.newEvents()) this.handle(event);
+    for (const event of this.newEvents()) {
+      try {
+        this.handle(event);
+      } catch (error) {
+        this.problem(`event ${event.runId}:${event.seq} (${event.kind}) could not be filed: ${(error as Error).message}`);
+      }
+    }
     this.retryPending();
+    result.ackUpTo = this.ackUpTo();
     return result;
   }
+
+  /** A problem of the server itself, as a timeline entry. */
+  private problem(message: string): void {
+    const at = this.now.toISOString();
+    this.entries.push({ at, ms: Date.parse(at) - this.startedMs, kind: "problem", label: "measured", problem: { where: "server ingest", message } });
+  }
+
+  // -- events ----------------------------------------------------------------
 
   private newEvents(): MailboxEvent[] {
     const fresh: MailboxEvent[] = [];
     for (const name of ["events.1.jsonl", "events.jsonl"]) {
-      const text = readTextIfExists(path.join(this.root, name));
+      const text = readRegularFile(path.join(this.root, name));
       if (text === undefined) continue;
       const { events, skipped } = parseEvents(text);
       this.state.skippedLines += skipped;
       for (const event of events) {
-        if (event.seq <= (this.state.eventSeq[event.runId] ?? 0)) continue;
-        this.state.eventSeq[event.runId] = event.seq;
+        if (!this.isNew(event)) continue;
         if (Date.parse(event.time) >= this.startedMs - CLOCK_MARGIN_MS) fresh.push(event);
       }
     }
     return fresh;
+  }
+
+  /** True the first time an event is seen. Sequence numbers skipped on the way are kept as gaps. */
+  private isNew(event: MailboxEvent): boolean {
+    let run = this.state.runs.find((candidate) => candidate.runId === event.runId);
+    if (!run) {
+      run = { runId: event.runId, highest: 0, gaps: [] };
+      this.state.runs.push(run);
+    }
+    const { seq } = event;
+    if (seq > run.highest) {
+      if (seq > run.highest + 1) run.gaps.push([run.highest + 1, seq - 1]);
+      if (run.gaps.length > 50) run.gaps.splice(0, run.gaps.length - 50);
+      run.highest = seq;
+      return true;
+    }
+    const gapIndex = run.gaps.findIndex(([from, to]) => seq >= from && seq <= to);
+    if (gapIndex === -1) return false;
+    const [from, to] = run.gaps[gapIndex] as [number, number];
+    const rest: [number, number][] = [];
+    if (from < seq) rest.push([from, seq - 1]);
+    if (seq < to) rest.push([seq + 1, to]);
+    run.gaps.splice(gapIndex, 1, ...rest);
+    return true;
   }
 
   private entry(event: MailboxEvent, at: string, label: TimelineEntry["label"], payload: unknown): TimelineEntry {
@@ -176,10 +256,11 @@ class IngestRun {
 
   private fileMark(event: Extract<MailboxEvent, { kind: "mark" }>): void {
     const mark = event.mark;
+    if (this.state.marks.some((filed) => filed.id === mark.id)) return;
     const n = this.state.nextMark++;
     const dir = `marks/${n}-${slugify(mark.name ?? mark.source)}`;
-    this.state.marks[mark.id] = { n, dir };
-    if (mark.commandId) this.state.marksByCommand[mark.commandId] = mark.id;
+    const commandId = isSafeName(mark.commandId) ? mark.commandId : null;
+    this.state.marks.push({ id: mark.id, n, dir, commandId });
     const absolute = path.join(this.sessionDir, dir);
     fs.mkdirSync(absolute, { recursive: true });
     const markFile: MarkFile = {
@@ -191,7 +272,7 @@ class IngestRun {
       source: mark.source,
       at: event.time,
       ms: Date.parse(event.time) - this.startedMs,
-      commandId: mark.commandId ?? null,
+      commandId,
       snapshotId: mark.snapshotId,
       snapshot: null,
       parts: {
@@ -199,7 +280,7 @@ class IngestRun {
         ax: missing("the snapshot was not copied yet"),
         state: missing("the snapshot was not copied yet"),
         screenRendered: missing("the snapshot was not copied yet"),
-        screenCaptured: mark.commandId
+        screenCaptured: commandId
           ? missing("the Mac has not filed a capture for this mark yet")
           : missing("marked on the device; the Mac took no capture at that moment"),
         note: missing("the tester wrote no note"),
@@ -208,24 +289,20 @@ class IngestRun {
     if (!this.copyMarkSnapshot(absolute, markFile)) {
       this.state.pending.push({ kind: "markSnapshot", snapshotId: mark.snapshotId, markId: mark.id });
     }
-    if (mark.commandId) attachCaptureFile(this.sessionDir, absolute, markFile);
+    if (commandId) attachCaptureFile(this.sessionDir, absolute, markFile);
     writeMarkFile(absolute, markFile);
-    for (const note of this.state.pendingNotes.filter((pending) => pending.markId === mark.id)) {
-      addNote(absolute, note.text);
-    }
+    for (const note of this.state.pendingNotes.filter((pending) => pending.markId === mark.id)) addNote(absolute, note.text);
     this.state.pendingNotes = this.state.pendingNotes.filter((pending) => pending.markId !== mark.id);
     this.marksFiled.push(n);
-    this.entries.push(
-      this.entry(event, event.time, "measured", { n, id: mark.id, name: mark.name ?? null, source: mark.source, dir, commandId: mark.commandId ?? null }),
-    );
+    this.entries.push(this.entry(event, event.time, "measured", { n, id: mark.id, name: mark.name ?? null, source: mark.source, dir, commandId }));
   }
 
   /** Copies the snapshot files into the mark folder. False when the snapshot is not in the copy yet. */
   private copyMarkSnapshot(markDir: string, markFile: MarkFile): boolean {
-    const copied = copySnapshot(this.root, markFile.snapshotId, markDir);
+    const copied = this.copySnapshot(markFile.snapshotId, markDir);
     if (!copied) return false;
     for (const part of SNAPSHOT_PARTS) {
-      markFile.parts[part.part] = copied.files.includes(part.file) ? part.label(part.file) : missing(`not in this snapshot`);
+      markFile.parts[part.part] = copied.files.includes(part.file) ? part.label(part.file) : missing("not in this snapshot");
     }
     markFile.snapshot = {
       ms: copied.info.ms,
@@ -237,13 +314,9 @@ class IngestRun {
   }
 
   private fileNote(markId: string, text: string, event: MailboxEvent): void {
-    const mark = this.state.marks[markId];
-    if (mark) {
-      const absolute = path.join(this.sessionDir, mark.dir);
-      addNote(absolute, text);
-    } else {
-      this.state.pendingNotes.push({ markId, text });
-    }
+    const mark = this.state.marks.find((filed) => filed.id === markId);
+    if (mark) addNote(path.join(this.sessionDir, mark.dir), text);
+    else this.state.pendingNotes.push({ markId, text });
     this.entries.push(this.entry(event, event.time, "reported", { n: mark?.n ?? null, markId, text }));
   }
 
@@ -251,19 +324,30 @@ class IngestRun {
 
   private fileSnapshot(event: Extract<MailboxEvent, { kind: "snapshot" }>): void {
     const id = event.snapshot.id;
+    if (!isSafeName(id)) {
+      this.problem(`a snapshot id from the app is not a safe name and was skipped`);
+      return;
+    }
     this.state.pending.push({ kind: "snapshot", snapshotId: id });
     this.entries.push(this.entry(event, event.time, "measured", { ...event.snapshot, dir: `snapshots/${id}` }));
   }
 
   private retryPending(): void {
-    this.state.pending = this.state.pending.filter((pending) => !this.tryPending(pending));
+    this.state.pending = this.state.pending.filter((pending) => {
+      try {
+        return !this.tryPending(pending);
+      } catch (error) {
+        this.problem(`a ${pending.kind} copy failed and was dropped: ${(error as Error).message}`);
+        return false;
+      }
+    });
   }
 
-  /** True when the pending copy is done. */
+  /** True when the pending copy is done (or can never be done). */
   private tryPending(pending: Pending): boolean {
     switch (pending.kind) {
       case "markSnapshot": {
-        const mark = this.state.marks[pending.markId];
+        const mark = this.state.marks.find((filed) => filed.id === pending.markId);
         if (!mark) return true;
         const absolute = path.join(this.sessionDir, mark.dir);
         const markFile = readMarkFile(absolute);
@@ -272,54 +356,121 @@ class IngestRun {
         return true;
       }
       case "snapshot":
-        return copySnapshot(this.root, pending.snapshotId, path.join(this.sessionDir, "snapshots", pending.snapshotId)) !== undefined;
+        return this.copySnapshot(pending.snapshotId, path.join(this.sessionDir, "snapshots", pending.snapshotId)) !== undefined;
       case "metrickit":
-        return copyMetricKit(this.root, pending.file, path.join(this.sessionDir, "metrickit"));
+        return this.copyMetricKit(pending.file);
     }
   }
 
-  private outboxMax(): number {
-    const outbox = path.join(this.root, "outbox");
-    if (!fs.existsSync(outbox)) return 0;
-    return fs
-      .readdirSync(outbox)
-      .map((name) => Number.parseInt(name, 10))
-      .filter((seq) => Number.isFinite(seq))
-      .reduce((max, seq) => Math.max(max, seq), 0);
+  /** Copies snapshots/<id>/ from the mailbox copy (regular files only). Undefined when it is not there (yet). */
+  private copySnapshot(snapshotId: string, destination: string): { files: string[]; info: SnapshotInfo } | undefined {
+    if (!isSafeName(snapshotId)) return undefined;
+    const source = path.join(this.root, "snapshots", snapshotId);
+    if (!isRealFolder(source)) return undefined;
+    const infoText = readRegularFile(path.join(source, "snapshot.json"));
+    if (infoText === undefined) return undefined;
+    let info: SnapshotInfo;
+    try {
+      info = parseSnapshotInfo(infoText);
+    } catch {
+      return undefined;
+    }
+    fs.mkdirSync(destination, { recursive: true });
+    const files = fs.readdirSync(source).filter((name) => isSafeName(name) && isRegularFile(path.join(source, name)));
+    for (const file of files) fs.copyFileSync(path.join(source, file), path.join(destination, file));
+    if (!this.state.copied.snapshots.includes(snapshotId)) this.state.copied.snapshots.push(snapshotId);
+    return { files: files.filter((file) => file !== "snapshot.json"), info };
+  }
+
+  /** True when the file is copied, or when it can never be (an unsafe name). */
+  private copyMetricKit(relative: string): boolean {
+    const parts = relative.split("/");
+    if (parts.length !== 2 || parts[0] !== "metrickit" || !isSafeName(parts[1])) return true;
+    const source = path.join(this.root, relative);
+    if (!isRegularFile(source)) return false;
+    const destinationDir = path.join(this.sessionDir, "metrickit");
+    fs.mkdirSync(destinationDir, { recursive: true });
+    fs.copyFileSync(source, path.join(destinationDir, parts[1] as string));
+    if (!this.state.copied.files.includes(relative)) this.state.copied.files.push(relative);
+    return true;
+  }
+
+  // -- the ack -----------------------------------------------------------------
+
+  /**
+   * The highest outbox seq the app may delete: every item up to it is older than the session,
+   * or its snapshot and file are safely in the session. An item whose files never arrive holds
+   * the ack back for at most ACK_PATIENCE pulls, then it is let go with a problem entry.
+   */
+  private ackUpTo(): number {
+    let upTo = 0;
+    for (const item of readOutbox(this.root)) {
+      if (!this.ackable(item)) break;
+      upTo = item.seq;
+    }
+    return upTo;
+  }
+
+  private ackable(item: OutboxItem): boolean {
+    if (Date.parse(item.time) < this.startedMs - CLOCK_MARGIN_MS) return true;
+    const snapshotMissing = isSafeName(item.snapshotId) && !this.state.copied.snapshots.includes(item.snapshotId);
+    const fileMissing = typeof item.file === "string" && !this.state.copied.files.includes(item.file);
+    if (!snapshotMissing && !fileMissing) return true;
+    const key = `${item.runId}:${item.seq}`;
+    let wait = this.state.ackWaits.find((candidate) => candidate.key === key);
+    if (!wait) {
+      wait = { key, pulls: 0 };
+      this.state.ackWaits.push(wait);
+    }
+    wait.pulls++;
+    if (wait.pulls <= ACK_PATIENCE) return false;
+    this.problem(`outbox item ${item.seq} names files that never arrived (${item.snapshotId ?? item.file}); the app may now delete it`);
+    this.state.ackWaits = this.state.ackWaits.filter((candidate) => candidate.key !== key);
+    return true;
   }
 }
 
-function isSafeName(name: string): boolean {
-  return /^[A-Za-z0-9._-]+$/.test(name) && !name.startsWith(".");
+const OUTBOX_NAME = /^(\d{6,})-(result|mark|metrickit)\.json$/;
+
+/** The outbox items of the copy whose file name and seq agree, oldest first. */
+function readOutbox(root: string): OutboxItem[] {
+  const outbox = path.join(root, "outbox");
+  if (!isRealFolder(outbox)) return [];
+  const items: OutboxItem[] = [];
+  for (const name of fs.readdirSync(outbox)) {
+    const match = OUTBOX_NAME.exec(name);
+    if (!match) continue;
+    const text = readRegularFile(path.join(outbox, name));
+    if (text === undefined) continue;
+    try {
+      const item = parseOutboxItem(text);
+      if (item.seq === Number(match[1])) items.push(item);
+    } catch {
+      // Not an outbox item this server can read; it is skipped (and not acknowledged past).
+    }
+  }
+  return items.sort((a, b) => a.seq - b.seq);
 }
 
-/** Copies snapshots/<id>/ from the mailbox copy. Undefined when it is not there (yet). */
-function copySnapshot(root: string, snapshotId: string, destination: string): { files: string[]; info: SnapshotInfo } | undefined {
-  if (!isSafeName(snapshotId)) return undefined;
-  const source = path.join(root, "snapshots", snapshotId);
-  const infoText = readTextIfExists(path.join(source, "snapshot.json"));
-  if (infoText === undefined) return undefined;
-  let info: SnapshotInfo;
+function isRegularFile(file: string): boolean {
   try {
-    info = parseSnapshotInfo(infoText);
+    return fs.lstatSync(file).isFile();
   } catch {
-    return undefined;
+    return false;
   }
-  fs.mkdirSync(destination, { recursive: true });
-  const files = fs.readdirSync(source).filter((name) => !name.startsWith(".") && name !== "snapshot.json");
-  for (const file of files) fs.copyFileSync(path.join(source, file), path.join(destination, file));
-  fs.copyFileSync(path.join(source, "snapshot.json"), path.join(destination, "snapshot.json"));
-  return { files, info };
 }
 
-function copyMetricKit(root: string, relative: string, destinationDir: string): boolean {
-  const parts = relative.split("/");
-  if (parts.length !== 2 || parts[0] !== "metrickit" || !isSafeName(parts[1] as string)) return true;
-  const source = path.join(root, relative);
-  if (!fs.existsSync(source)) return false;
-  fs.mkdirSync(destinationDir, { recursive: true });
-  fs.copyFileSync(source, path.join(destinationDir, parts[1] as string));
-  return true;
+function isRealFolder(dir: string): boolean {
+  try {
+    return fs.lstatSync(dir).isDirectory();
+  } catch {
+    return false;
+  }
+}
+
+/** The text of a regular file (not a link or folder), or undefined. */
+function readRegularFile(file: string): string | undefined {
+  return isRegularFile(file) ? readTextIfExists(file) : undefined;
 }
 
 export function readMarkFile(markDir: string): MarkFile {
@@ -332,26 +483,31 @@ export function writeMarkFile(markDir: string, markFile: MarkFile): void {
 
 function addNote(markDir: string, text: string): void {
   fs.appendFileSync(path.join(markDir, "note.txt"), `${text}\n`);
-  const markFile = readMarkFileIfExists(markDir);
-  if (!markFile) return;
+  if (!fs.existsSync(path.join(markDir, "mark.json"))) return;
+  const markFile = readMarkFile(markDir);
   markFile.parts.note = reported("note.txt", "the tester's words");
   writeMarkFile(markDir, markFile);
 }
 
-function readMarkFileIfExists(markDir: string): MarkFile | undefined {
-  return fs.existsSync(path.join(markDir, "mark.json")) ? readMarkFile(markDir) : undefined;
-}
-
 /** Copies the Mac's real screenshot for this mark's command into the mark folder, if there is one. */
 function attachCaptureFile(sessionDir: string, markDir: string, markFile: MarkFile): boolean {
-  if (!markFile.commandId) return false;
+  if (!isSafeName(markFile.commandId)) return false;
   const file = capturePath(sessionDir, markFile.commandId);
-  if (!fs.existsSync(file)) return false;
+  if (!isRegularFile(file)) return false;
   fs.copyFileSync(file, path.join(markDir, "screen-captured.png"));
-  const meta = readTextIfExists(`${file.slice(0, -4)}.json`);
-  const source = meta ? (JSON.parse(meta) as { source?: string }).source : undefined;
-  markFile.parts.screenCaptured = captured("screen-captured.png", source ?? "a real capture taken by the Mac");
+  markFile.parts.screenCaptured = captured("screen-captured.png", captureSource(`${file.slice(0, -4)}.json`));
   return true;
+}
+
+/** The capture's source from the small JSON file the mark tool writes next to it. */
+function captureSource(metaFile: string): string {
+  try {
+    const meta: unknown = JSON.parse(readTextIfExists(metaFile) ?? "null");
+    const source = typeof meta === "object" && meta !== null ? (meta as { source?: unknown }).source : undefined;
+    return typeof source === "string" ? source : "a real capture taken by the Mac";
+  } catch {
+    return "a real capture taken by the Mac";
+  }
 }
 
 /**
@@ -359,8 +515,7 @@ function attachCaptureFile(sessionDir: string, markDir: string, markFile: MarkFi
  * exists and now has its capture.
  */
 export function attachCapture(sessionDir: string, state: IngestState, commandId: string): boolean {
-  const markId = state.marksByCommand[commandId];
-  const mark = markId ? state.marks[markId] : undefined;
+  const mark = findMarkByCommand(state, commandId);
   if (!mark) return false;
   const markDir = path.join(sessionDir, mark.dir);
   const markFile = readMarkFile(markDir);
