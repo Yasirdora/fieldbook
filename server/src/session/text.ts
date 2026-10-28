@@ -70,8 +70,10 @@ function describeEntry(entry: TimelineEntry, sessionDir: string): string {
       const problem = payload<{ where: string; message: string }>(entry);
       return `problem in ${problem.where}: ${problem.message}`;
     }
-    case "crash":
-      return `crash log ${payload<{ file: string }>(entry).file}`;
+    case "crash": {
+      const crash = payload<{ name?: string; file: string | null }>(entry);
+      return crash.file ? `crash log ${crash.file}` : `crash log ${crash.name ?? "?"} (listed, but it could not be copied)`;
+    }
     default:
       return entry.kind;
   }

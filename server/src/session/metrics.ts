@@ -14,7 +14,7 @@ export interface SessionMetrics {
   /** Hangs of at least rules.hangs.minMs. */
   hangs: Labeled<number>;
   /** Error and fault log messages with numbers replaced by "#", without repeats. */
-  errorMessages: string[];
+  errorMessages: Labeled<string[]>;
   marks: number;
 }
 
@@ -29,27 +29,34 @@ export function normalizeMessage(message: string): string {
   return message.replace(/\d+(?:[.,:]\d+)*/g, "#").replace(/\s+/g, " ").trim();
 }
 
-function payload<T>(entry: TimelineEntry): T {
-  return entry[entry.kind] as T;
+function payload<T>(entry: TimelineEntry): Partial<T> {
+  const value = entry[entry.kind];
+  return (typeof value === "object" && value !== null ? value : {}) as Partial<T>;
 }
+
+const isFiniteNumber = (value: unknown): value is number => typeof value === "number" && Number.isFinite(value);
 
 export function sessionMetrics(session: SessionFile, entries: readonly TimelineEntry[], rules: Rules): SessionMetrics {
   const of = (kind: string) => entries.filter((entry) => entry.kind === kind);
-  const launches = of("launch").map((entry) => payload<{ ms: number }>(entry).ms);
-  const memory = of("memory").map((entry) => payload<{ peak: number }>(entry).peak);
-  const hangs = of("hang").filter((entry) => payload<{ ms: number }>(entry).ms >= rules.hangs.minMs);
+  const launches = of("launch").map((entry) => payload<{ ms: number }>(entry).ms).filter(isFiniteNumber);
+  const memory = of("memory").map((entry) => payload<{ peak: number }>(entry).peak).filter(isFiniteNumber);
+  const hangs = of("hang").filter((entry) => {
+    const ms = payload<{ ms: number }>(entry).ms;
+    return isFiniteNumber(ms) && ms >= rules.hangs.minMs;
+  });
   const errors = of("log")
     .map((entry) => payload<{ level: string; message: string }>(entry))
-    .filter((log) => log.level === "error" || log.level === "fault")
-    .map((log) => normalizeMessage(log.message));
+    .filter((log) => (log.level === "error" || log.level === "fault") && typeof log.message === "string")
+    .map((log) => normalizeMessage(log.message as string));
   const source = "timeline.jsonl (from the app's events.jsonl)";
+  const copied = session.pulls.count > 0;
   return {
     crashes: crashCount(session),
     launchesMs: launches.length > 0 ? measured(launches, source) : missing("no launch was recorded (start with relaunch: true to measure one)"),
     launchMedianMs: launches.length > 0 ? measured(median(launches), source) : missing("no launch was recorded"),
     peakMemoryBytes: memory.length > 0 ? measured(Math.max(...memory), source) : missing("no memory sample was recorded"),
-    hangs: session.pulls.count > 0 ? measured(hangs.length, source) : missing("the mailbox was never copied"),
-    errorMessages: [...new Set(errors)].sort(),
+    hangs: copied ? measured(hangs.length, source) : missing("the mailbox was never copied"),
+    errorMessages: copied ? measured([...new Set(errors)].sort(), `${source}; numbers replaced by #`) : missing("the mailbox was never copied"),
     marks: of("mark").length,
   };
 }

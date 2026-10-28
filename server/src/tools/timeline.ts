@@ -35,9 +35,10 @@ interface MarkPayload {
 function findMark(entries: TimelineEntry[], around: string, sessionId: string): TimelineEntry {
   const marks = entries.filter((entry) => entry.kind === "mark");
   const wanted = around.trim().toLowerCase();
+  if (wanted.length === 0) throw new ToolError("around is blank: give a mark number or name.");
   const found = marks.find((entry) => {
     const mark = entry.mark as MarkPayload;
-    return String(mark.n) === wanted || (mark.name ?? "").toLowerCase() === wanted;
+    return String(mark.n) === wanted || (mark.name !== null && mark.name.toLowerCase() === wanted);
   });
   if (found) return found;
   const known = marks.map((entry) => markTitle(entry.mark as MarkPayload)).join(", ") || "none";
@@ -49,9 +50,10 @@ function header(session: SessionFile, entries: TimelineEntry[], ctx: Context): s
   const app = `app ${session.app.version.value ?? "?"} (${session.app.build.value ?? "?"})${session.app.commit.value ? `, commit ${session.app.commit.value}` : ""}`;
   const where = `${session.target} "${session.device.name}" (${[session.device.model.value, session.device.osVersion.value].filter(Boolean).join(", ")})`;
   const crashes = metrics.crashes.label === "missing" ? `crashes: ${metrics.crashes.reason}` : plural(metrics.crashes.value ?? 0, "crash", "crashes");
+  const hangs = metrics.hangs.label === "missing" ? `hangs: ${metrics.hangs.reason}` : `${plural(metrics.hangs.value ?? 0, "hang")} of ${ctx.config.rules.hangs.minMs} ms or more`;
   return [
     `Session ${session.id} "${session.label}" — ${where}, ${app}. Status: ${session.status}.`,
-    `Started ${session.startedAt.slice(11, 19)} UTC. ${plural(metrics.marks, "mark")}, ${plural(metrics.hangs.value ?? 0, "hang")} of ${ctx.config.rules.hangs.minMs} ms or more, ${crashes}, peak memory ${describe(metrics.peakMemoryBytes, formatBytes)}.`,
+    `Started ${session.startedAt.slice(11, 19)} UTC. ${plural(metrics.marks, "mark")}, ${hangs}, ${crashes}, peak memory ${describe(metrics.peakMemoryBytes, formatBytes)}.`,
   ];
 }
 

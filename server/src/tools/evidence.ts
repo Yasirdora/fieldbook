@@ -10,12 +10,12 @@ import fs from "node:fs";
 import path from "node:path";
 import type { Context } from "../context.ts";
 import { listFilesRecursive, sha256File, writeFileAtomic } from "../fsx.ts";
-import { describe, measured, type Labeled } from "../labels.ts";
+import { describe, type Labeled } from "../labels.ts";
 import { sessionMetrics, type SessionMetrics } from "../session/metrics.ts";
 import { SessionStore, type SessionFile } from "../session/store.ts";
 import { TOOL_VERSION } from "../version.ts";
 import { formatBytes, ToolError, type ToolAnswer } from "./common.ts";
-import { readComparison, type CompareData, type RuleResult } from "./compare.ts";
+import { readComparison, sessionFingerprints, type CompareData, type RuleResult } from "./compare.ts";
 
 export interface EvidenceSession {
   role: "a" | "b" | "only";
@@ -29,7 +29,7 @@ export interface EvidenceSession {
   status: SessionFile["status"];
   startedAt: string;
   endedAt: string | null;
-  metrics: Omit<SessionMetrics, "errorMessages"> & { errorMessages: Labeled<string[]> };
+  metrics: SessionMetrics;
 }
 
 export interface EvidenceFile {
@@ -72,7 +72,7 @@ function evidenceSession(ctx: Context, store: SessionStore, id: string, role: Ev
     status: session.status,
     startedAt: session.startedAt,
     endedAt: session.endedAt,
-    metrics: { ...metrics, errorMessages: measured(metrics.errorMessages, "error and fault logs, numbers replaced by #") },
+    metrics,
   };
 }
 
@@ -143,6 +143,22 @@ function writeEvidence(ctx: Context, store: SessionStore, file: string, evidence
   writeFileAtomic(file, `${JSON.stringify(scrub(evidence, replacements), null, 2)}\n`);
 }
 
+/**
+ * A comparison's verdicts are copied into evidence.json next to fresh file hashes, so both
+ * must describe the same data: no session may still have been recording, and none may have
+ * changed since.
+ */
+function checkComparisonIsCurrent(ctx: Context, comparison: CompareData): void {
+  for (const [role, ref] of [["a", comparison.a], ["b", comparison.b]] as const) {
+    if (ref.status !== "stopped") {
+      throw new ToolError(`Session ${role} (${ref.id}) was still recording when compared. Stop it, then run compare again.`);
+    }
+  }
+  const now = sessionFingerprints(ctx.home, [comparison.a.id, comparison.b.id]);
+  const changed = Object.keys(now).filter((file) => comparison.fingerprints?.[file] !== now[file]);
+  if (changed.length > 0) throw new ToolError(`${changed.join(", ")} changed after the comparison. Run compare again.`);
+}
+
 export async function evidenceTool(ctx: Context, input: { session?: string; comparison?: string }): Promise<ToolAnswer<{ path: string; evidence: EvidenceFile }>> {
   if (Boolean(input.session) === Boolean(input.comparison)) throw new ToolError("Give exactly one of session or comparison.");
   const store = new SessionStore(ctx.home);
@@ -155,6 +171,7 @@ export async function evidenceTool(ctx: Context, input: { session?: string; comp
     evidence = { ...base, kind: "session", line: sessionLine(session), comparison: null, sessions: [session], rules: [], marks: [], warnings: [], files: cite(ctx.home, sessionFiles(ctx.home, session.id)) };
   } else {
     const comparison: CompareData = readComparison(ctx.home, input.comparison as string);
+    checkComparisonIsCurrent(ctx, comparison);
     const sessions = [evidenceSession(ctx, store, comparison.a.id, "a"), evidenceSession(ctx, store, comparison.b.id, "b")];
     file = path.join(ctx.home, "comparisons", comparison.id, "evidence.json");
     const files = [path.join("comparisons", comparison.id, "comparison.json"), ...sessionFiles(ctx.home, comparison.a.id), ...(comparison.a.id === comparison.b.id ? [] : sessionFiles(ctx.home, comparison.b.id))];

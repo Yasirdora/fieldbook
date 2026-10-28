@@ -11,6 +11,7 @@ import path from "node:path";
 import type { Context } from "../context.ts";
 import { matchesText, parseTree, type AXNode, type RedactedText, type Rect, type ViewNode } from "../format.ts";
 import type { MarkFile } from "../session/ingest.ts";
+import { childrenOf, validFrame } from "../session/markDiff.ts";
 import { SessionStore } from "../session/store.ts";
 import { markTitle } from "../session/text.ts";
 import { plural, ToolError, type ToolAnswer } from "./common.ts";
@@ -53,11 +54,12 @@ export interface FindMatch extends Element {
 }
 
 function flattenViews(node: ViewNode, at: string, out: Element[]): void {
-  out.push({
+  const frame = validFrame(node.frame);
+  if (frame) out.push({
     source: "tree",
     path: at,
     type: node.type,
-    frame: node.frame,
+    frame,
     window: node.window,
     id: node.ax?.id ?? null,
     axLabel: node.ax?.label ?? null,
@@ -66,15 +68,16 @@ function flattenViews(node: ViewNode, at: string, out: Element[]): void {
     hidden: node.hidden,
     alpha: node.alpha,
   });
-  node.children.forEach((child, index) => flattenViews(child, `${at}/${child.type}[${index}]`, out));
+  childrenOf<ViewNode>(node).forEach((child, index) => flattenViews(child, `${at}/${child.type}[${index}]`, out));
 }
 
 function flattenAccessibility(node: AXNode, at: string, window: number, out: Element[]): void {
-  out.push({
+  const frame = validFrame(node.frame);
+  if (frame) out.push({
     source: "ax",
     path: at,
     type: node.type,
-    frame: node.frame,
+    frame,
     window,
     id: node.id ?? null,
     axLabel: node.label ?? null,
@@ -82,24 +85,28 @@ function flattenAccessibility(node: AXNode, at: string, window: number, out: Ele
     text: null,
     axSource: node.source,
   });
-  node.children.forEach((child, index) => flattenAccessibility(child, `${at}/${child.type}[${index}]`, window, out));
+  childrenOf<AXNode>(node).forEach((child, index) => flattenAccessibility(child, `${at}/${child.type}[${index}]`, window, out));
 }
 
-function loadElements(markDir: string): Element[] {
+/** The elements of a mark's trees, and whether any tree could be read at all. */
+function loadElements(markDir: string): { elements: Element[]; readable: boolean } {
   const elements: Element[] = [];
-  const read = (file: string) => {
-    const full = path.join(markDir, file);
-    return fs.existsSync(full) ? fs.readFileSync(full, "utf8") : undefined;
+  const read = <T>(file: string) => {
+    try {
+      return parseTree<T>(fs.readFileSync(path.join(markDir, file), "utf8"));
+    } catch {
+      return undefined;
+    }
   };
-  const tree = read("tree.json");
-  if (tree) {
-    for (const window of parseTree<ViewNode>(tree).windows) flattenViews(window.root, `${window.root.type}[${window.index}]`, elements);
+  const tree = read<ViewNode>("tree.json");
+  for (const window of tree?.windows ?? []) {
+    if (window?.root) flattenViews(window.root, `${window.root.type}[${window.index}]`, elements);
   }
-  const ax = read("ax.json");
-  if (ax) {
-    for (const window of parseTree<AXNode>(ax).windows) flattenAccessibility(window.root, `${window.root.type}[${window.index}]`, window.index, elements);
+  const ax = read<AXNode>("ax.json");
+  for (const window of ax?.windows ?? []) {
+    if (window?.root) flattenAccessibility(window.root, `${window.root.type}[${window.index}]`, window.index, elements);
   }
-  return elements;
+  return { elements, readable: tree !== undefined || ax !== undefined };
 }
 
 function typeMatches(type: string, wanted: string): boolean {
@@ -224,7 +231,8 @@ function findMarkDir(sessionDir: string, wanted: string, sessionId: string): { d
     .filter((entry): entry is { dir: string; mark: MarkFile } => entry !== undefined)
     .sort((a, b) => a.mark.n - b.mark.n);
   const lower = wanted.trim().toLowerCase();
-  const found = marks.find((entry) => String(entry.mark.n) === lower || (entry.mark.name ?? "").toLowerCase() === lower);
+  if (lower.length === 0) throw new ToolError("No mark given: give a mark number or name.");
+  const found = marks.find((entry) => String(entry.mark.n) === lower || (entry.mark.name !== null && entry.mark.name.toLowerCase() === lower));
   if (found) return found;
   throw new ToolError(`No mark ${wanted} in session ${sessionId}. Marks: ${marks.map((entry) => markTitle(entry.mark)).join(", ") || "none"}.`);
 }
@@ -244,11 +252,14 @@ export async function findTool(ctx: Context, input: FindInput): Promise<ToolAnsw
   const session = store.read(input.session);
   const sessionDir = store.dir(session.id);
   const { dir, mark } = findMarkDir(sessionDir, input.mark, session.id);
-  const elements = loadElements(path.join(sessionDir, dir));
+  const { elements, readable } = loadElements(path.join(sessionDir, dir));
   const found = search(elements, input.query);
   const title = markTitle(mark);
   const lines: string[] = [];
-  if (found.length === 0) {
+  if (!readable) {
+    const why = mark.parts?.tree?.reason ?? "the snapshot files are missing";
+    lines.push(`${title.charAt(0).toUpperCase()}${title.slice(1)} has no view tree or accessibility tree to search: ${why}.`);
+  } else if (found.length === 0) {
     lines.push(`No element matches ${input.query} in ${title}. Hashed text must match exactly (case and spaces).`);
   } else {
     const inTree = found.filter((match) => match.source === "tree").length;

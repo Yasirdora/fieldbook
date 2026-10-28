@@ -56,3 +56,6 @@ An adversarial review (3 finders, 3 skeptics) read the server. These rows record
 | 22 | `node --test test/hostile-mailbox.test.ts` | 7 | red: 0 pass, 7 fail | Untrusted mailbox data: a `..` snapshot id let the snapshot tool write outside the session; a `..` command id filed a foreign picture; a folder or link in a snapshot, a `constructor` mark id, or one malformed event broke or skewed the pull; a stray outbox file name set the ack; device id and name reached evidence.json. |
 | 23 | same, after the fixes | 7 | green: 7 pass | |
 | 24 | `npm test` | 107 | green: 107 pass | `tsc` clean. |
+| 25 | `node --test test/analysis-robustness.test.ts` | 8 | red: 0 pass, 8 fail | Evidence mixed saved verdicts with later data; non-finite numbers became "measured"; a mark with no snapshot passed; newErrors passed when b was never read; a crash log that failed to copy counted as 0; a broken tree threw in compare and find; find said "no match" when a mark had no trees; the header said "0 hangs" for a missing count; a blank mark picked an unnamed mark. |
+| 26 | same, after the fixes | 8 | green: 8 pass | |
+| 27 | `npm test` | 115 | green: 115 pass | `tsc` clean. |

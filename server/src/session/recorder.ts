@@ -156,44 +156,55 @@ export class Recorder {
   }
 
   /** The last pull, crash pickup, and the session is closed. */
-  stop(): Promise<{ pull: PullReport; newCrashLogs: Labeled<string[]> }> {
+  stop(): Promise<{ pull: PullReport; newCrashLogs: Labeled<string[]>; copyFailures: string[] }> {
     return this.serial(async () => {
       if (this.timer) clearInterval(this.timer);
       this.timer = undefined;
       const pull = await this.pull();
-      const newCrashLogs = await this.pickUpCrashes();
+      const { listed, copyFailures } = await this.pickUpCrashes();
       await this.stopConsole();
-      this.session.crashes = newCrashLogs;
+      this.session.crashes = listed;
       this.session.status = "stopped";
       this.session.endedAt = this.ctx.now().toISOString();
       this.save();
       this.ctx.recorders.delete(this.session.id);
-      return { pull, newCrashLogs };
+      return { pull, newCrashLogs: listed, copyFailures };
     });
   }
 
-  private async pickUpCrashes(): Promise<Labeled<string[]>> {
+  /**
+   * The crash logs of this app that appeared during the session. The count comes from the
+   * listing (measured); a log that cannot be copied still counts, and its reason is kept.
+   */
+  private async pickUpCrashes(): Promise<{ listed: Labeled<string[]>; copyFailures: string[] }> {
     const executable = this.session.app.executable.value ?? this.session.hello?.executable ?? this.session.app.name.value;
-    if (!executable) return missing("the app's executable name is unknown (the app never wrote hello.json)");
+    if (!executable) return { listed: missing("the app's executable name is unknown (the app never wrote hello.json)"), copyFailures: [] };
     const before = this.session.crashLogsAtStart;
-    if (before.label === "missing") return missing(`the crash log list at the start could not be read: ${before.reason}`);
+    if (before.label === "missing") return { listed: missing(`the crash log list at the start could not be read: ${before.reason}`), copyFailures: [] };
     const now = await this.device.crashLogNames();
-    if (now.label === "missing") return missing(now.reason ?? "the crash logs could not be listed");
+    if (now.label === "missing") return { listed: missing(now.reason ?? "the crash logs could not be listed"), copyFailures: [] };
     const fresh = (now.value ?? []).filter((name) => isCrashLogOf(name, executable) && !(before.value ?? []).includes(name));
-    const copied: string[] = [];
+    const copyFailures: string[] = [];
     const entries: TimelineEntry[] = [];
     for (const name of fresh) {
       const result = await this.device.copyCrashLog(name, path.join(this.dir, "crashes"));
-      if (result.label === "missing") {
-        this.session.problems.push(result.reason ?? `could not copy ${name}`);
-        continue;
+      const copied = result.label !== "missing";
+      if (!copied) {
+        const why = `${name} could not be copied: ${result.reason ?? "unknown reason"}`;
+        copyFailures.push(why);
+        this.session.problems.push(why);
       }
-      copied.push(name);
       const at = this.ctx.now().toISOString();
-      entries.push({ at, ms: Date.parse(at) - Date.parse(this.session.startedAt), kind: "crash", label: "measured", crash: { file: `crashes/${name}` } });
+      entries.push({
+        at,
+        ms: Date.parse(at) - Date.parse(this.session.startedAt),
+        kind: "crash",
+        label: "measured",
+        crash: { name, file: copied ? `crashes/${name}` : null },
+      });
     }
     this.store.appendTimeline(this.session.id, entries);
-    return measured(copied, `${now.source}; compared with the list at the start`);
+    return { listed: measured(fresh, `${now.source}; compared with the list at the start`), copyFailures };
   }
 
   /** Stops the timer and the console without closing the session (the server is shutting down). */

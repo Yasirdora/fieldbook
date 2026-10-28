@@ -44,21 +44,43 @@ function readTree<T>(file: string): ReturnType<typeof parseTree<T>> | undefined 
   }
 }
 
+/** Which of a mark's two trees can be read. */
+export function readableTrees(markDir: string): { tree: boolean; ax: boolean } {
+  return {
+    tree: readTree(path.join(markDir, "tree.json")) !== undefined,
+    ax: readTree(path.join(markDir, "ax.json")) !== undefined,
+  };
+}
+
+/** A frame with four finite numbers, or undefined. */
+export function validFrame(frame: unknown): Rect | undefined {
+  if (typeof frame !== "object" || frame === null) return undefined;
+  const { x, y, w, h } = frame as Record<string, unknown>;
+  return [x, y, w, h].every((value) => typeof value === "number" && Number.isFinite(value)) ? (frame as Rect) : undefined;
+}
+
+/** A node's children, or none when the file has no list there. */
+export function childrenOf<T>(node: { children?: unknown }): T[] {
+  return Array.isArray(node.children) ? (node.children as T[]) : [];
+}
+
 /** Every element of a mark folder's tree.json and ax.json, by key. */
 export function markElements(markDir: string): Map<string, Facts> {
   const map = new Map<string, Facts>();
   const views = readTree<ViewNode>(path.join(markDir, "tree.json"));
   const walkViews = (node: ViewNode, at: string) => {
-    addElement(map, "tree", node.ax?.id, at, { frame: node.frame, texts: fingerprint(node.text, node.ax?.label, node.ax?.value) });
-    node.children.forEach((child, index) => walkViews(child, `${at}/${child.type}[${index}]`));
+    const frame = validFrame(node.frame);
+    if (frame) addElement(map, "tree", node.ax?.id, at, { frame, texts: fingerprint(node.text, node.ax?.label, node.ax?.value) });
+    childrenOf<ViewNode>(node).forEach((child, index) => walkViews(child, `${at}/${child.type}[${index}]`));
   };
-  for (const window of views?.windows ?? []) walkViews(window.root, `${window.root.type}[${window.index}]`);
+  for (const window of views?.windows ?? []) if (window?.root) walkViews(window.root, `${window.root.type}[${window.index}]`);
   const ax = readTree<AXNode>(path.join(markDir, "ax.json"));
   const walkAx = (node: AXNode, at: string) => {
-    addElement(map, "ax", node.id, at, { frame: node.frame, texts: fingerprint(node.label, node.value) });
-    node.children.forEach((child, index) => walkAx(child, `${at}/${child.type}[${index}]`));
+    const frame = validFrame(node.frame);
+    if (frame) addElement(map, "ax", node.id, at, { frame, texts: fingerprint(node.label, node.value) });
+    childrenOf<AXNode>(node).forEach((child, index) => walkAx(child, `${at}/${child.type}[${index}]`));
   };
-  for (const window of ax?.windows ?? []) walkAx(window.root, `${window.root.type}[${window.index}]`);
+  for (const window of ax?.windows ?? []) if (window?.root) walkAx(window.root, `${window.root.type}[${window.index}]`);
   return map;
 }
 

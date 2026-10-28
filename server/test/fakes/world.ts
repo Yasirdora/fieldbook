@@ -63,6 +63,8 @@ export class FakeWorld {
   consoleLines = ["Sparrowpad: launched\n", "Sparrowpad: list shows 3 notes\n"];
   /** Whether `notification observe` sees the app's outbox notification. */
   outboxNotificationArrives = true;
+  /** Crash log names whose `copy from` fails although they are listed. */
+  readonly failingCopies = new Set<string>();
   /** Tools that act as if they were not installed, for example "devicectl". */
   readonly brokenTools = new Set<string>();
   /** Called after a Darwin notification is posted to a device ("this-mac" for the Mac). */
@@ -205,7 +207,7 @@ export class FakeWorld {
     const destination = flag(argv, "--destination") ?? "";
     if (flag(argv, "--domain-type") === "systemCrashLogs") {
       const content = phone.crashLogs.get(source);
-      if (content === undefined) return fail("ERROR: The file couldn’t be opened because it doesn’t exist.");
+      if (content === undefined || this.failingCopies.has(source)) return fail("ERROR: The file couldn’t be opened because it doesn’t exist.");
       fs.mkdirSync(path.dirname(destination), { recursive: true });
       fs.writeFileSync(destination, content);
       return done();

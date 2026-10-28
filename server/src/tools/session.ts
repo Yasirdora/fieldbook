@@ -163,6 +163,7 @@ export interface SessionStopData {
   status: "stopped";
   dir: string;
   newCrashLogs: Labeled<string[]>;
+  copyFailures: string[];
 }
 
 export async function sessionStop(ctx: Context, input: { session: string }): Promise<ToolAnswer<SessionStopData | { session: string; status: "stopped" }>> {
@@ -172,25 +173,28 @@ export async function sessionStop(ctx: Context, input: { session: string }): Pro
     return { summary: `Session ${session.id} was already stopped at ${session.endedAt}.`, data: { session: session.id, status: "stopped" } };
   }
   const recorder = ctx.recorders.get(session.id) ?? (await reopen(ctx, store, session));
-  const { pull, newCrashLogs } = await recorder.stop();
+  const { pull, newCrashLogs, copyFailures } = await recorder.stop();
   const stopped = recorder.current;
   const metrics = sessionMetrics(stopped, store.readTimeline(stopped.id), ctx.config.rules);
   const duration = formatDuration(Date.parse(stopped.endedAt ?? stopped.startedAt) - Date.parse(stopped.startedAt));
   const entries = store.readTimeline(stopped.id).length;
   const lines = [
     `Stopped session ${stopped.id} "${stopped.label}" after ${duration} (${plural(stopped.pulls.count, "pull")}).${pull.ok ? "" : ` The last pull failed: ${pull.problem}`}`,
-    `Timeline: ${plural(entries, "entry", "entries")}, ${plural(metrics.marks, "mark")}, ${plural(metrics.hangs.value ?? 0, "hang")} of ${ctx.config.rules.hangs.minMs} ms or more, ${plural(metrics.errorMessages.length, "different error message")}, peak memory ${describe(metrics.peakMemoryBytes, formatBytes)}.`,
-    crashLine(newCrashLogs),
+    `Timeline: ${plural(entries, "entry", "entries")}, ${plural(metrics.marks, "mark")}, ${
+      metrics.hangs.label === "missing" ? `hangs: ${metrics.hangs.reason}` : `${plural(metrics.hangs.value ?? 0, "hang")} of ${ctx.config.rules.hangs.minMs} ms or more`
+    }, ${metrics.errorMessages.label === "missing" ? "error messages: missing" : plural(metrics.errorMessages.value?.length ?? 0, "different error message")}, peak memory ${describe(metrics.peakMemoryBytes, formatBytes)}.`,
+    crashLine(newCrashLogs, copyFailures),
     `Files: ${store.dir(stopped.id)}`,
   ];
-  return { summary: lines.join("\n"), data: { session: stopped.id, status: "stopped", dir: store.dir(stopped.id), newCrashLogs } };
+  return { summary: lines.join("\n"), data: { session: stopped.id, status: "stopped", dir: store.dir(stopped.id), newCrashLogs, copyFailures } };
 }
 
-function crashLine(crashes: Labeled<string[]>): string {
+function crashLine(crashes: Labeled<string[]>, copyFailures: string[]): string {
   if (crashes.label === "missing") return `Crashes: missing — ${crashes.reason}`;
   const names = crashes.value ?? [];
   if (names.length === 0) return "Crashes: no new crash log of this app (measured).";
-  return `Crashes: ${plural(names.length, "new crash log")} (measured): ${names.map((name) => `crashes/${name}`).join(", ")}.`;
+  const failed = copyFailures.length > 0 ? ` ${copyFailures.join("; ")}.` : "";
+  return `Crashes: ${plural(names.length, "new crash log")} (measured): ${names.join(", ")}.${failed}`;
 }
 
 /** A session recording in an earlier server process: find its device again to stop it. */
