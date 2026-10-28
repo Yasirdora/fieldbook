@@ -1,5 +1,8 @@
-/// A rectangle in points. The origin is top left.
-public struct Rect: Codable, Sendable, Equatable {
+// These names start with "Layout" because macOS already has C types named Rect, Point and Size
+// (MacTypes.h, reached through AppKit). Plain names would be ambiguous in files that import both.
+
+/// A rectangle in points. The origin is top left. In JSON this is a *rect*.
+public struct LayoutRect: Codable, Sendable, Equatable {
     public var x: Double
     public var y: Double
     public var w: Double
@@ -14,7 +17,7 @@ public struct Rect: Codable, Sendable, Equatable {
 }
 
 /// A point in points.
-public struct Point: Codable, Sendable, Equatable {
+public struct LayoutPoint: Codable, Sendable, Equatable {
     public var x: Double
     public var y: Double
 
@@ -25,7 +28,7 @@ public struct Point: Codable, Sendable, Equatable {
 }
 
 /// A size in points.
-public struct Size: Codable, Sendable, Equatable {
+public struct LayoutSize: Codable, Sendable, Equatable {
     public var w: Double
     public var h: Double
 

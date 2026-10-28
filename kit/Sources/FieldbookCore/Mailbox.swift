@@ -26,7 +26,7 @@ public enum MailboxError: Error, Equatable {
 }
 
 /// The folder the app shares with the Mac, and every read and write in it.
-/// All file work happens on this actor, never on the main thread.
+/// All file work happens off the main thread: in the async init, then on this actor.
 public actor Mailbox {
     public static let defaultRotateBytes = 5 * 1024 * 1024
     public static let defaultMaxOutboxItems = 50
@@ -44,8 +44,10 @@ public actor Mailbox {
     private var eventSeq = 0
     private var snapshotCounter = 0
     private var markCounter = 0
+    private var metricKitCounter = 0
 
-    /// Creates the folders if needed and loads the kit's counters.
+    /// Creates the folders if needed and loads the kit's counters. The init is async, so this
+    /// file work does not run on the caller's thread (at launch that is the main thread).
     /// `onOutbox` runs after each outbox write (the kit posts a Darwin notification there).
     public init(
         root: URL,
@@ -53,7 +55,7 @@ public actor Mailbox {
         rotateBytes: Int = Mailbox.defaultRotateBytes,
         maxOutboxItems: Int = Mailbox.defaultMaxOutboxItems,
         onOutbox: (@Sendable () -> Void)? = nil
-    ) throws {
+    ) async throws {
         let fileManager = FileManager.default
         for name in ["inbox", "outbox", "snapshots", "metrickit"] {
             try fileManager.createDirectory(
@@ -143,28 +145,41 @@ public actor Mailbox {
         let fileManager = FileManager.default
         try? fileManager.removeItem(at: staging)
         try fileManager.createDirectory(at: staging, withIntermediateDirectories: true)
-        try encoder.encode(files.info).write(to: staging.appendingPathComponent("snapshot.json"))
-        if let tree = files.tree {
-            try encoder.encode(tree).write(to: staging.appendingPathComponent("tree.json"))
-        }
-        if let ax = files.ax {
-            try encoder.encode(ax).write(to: staging.appendingPathComponent("ax.json"))
-        }
-        if let state = files.state {
-            try encoder.encode(state).write(to: staging.appendingPathComponent("state.json"))
-        }
-        if let png = files.renderedPNG {
-            try png.write(to: staging.appendingPathComponent("screen-rendered.png"))
+        do {
+            try writeSnapshotFiles(files, into: staging)
+        } catch {
+            // Leave no half-written hidden folder behind.
+            try? fileManager.removeItem(at: staging)
+            throw error
         }
         let destination = snapshots.appendingPathComponent(id, isDirectory: true)
         try? fileManager.removeItem(at: destination)
         try Self.moveReplacing(staging, to: destination)
     }
 
+    private func writeSnapshotFiles(_ files: SnapshotFiles, into folder: URL) throws {
+        try encoder.encode(files.info).write(to: folder.appendingPathComponent("snapshot.json"))
+        if let tree = files.tree {
+            try encoder.encode(tree).write(to: folder.appendingPathComponent("tree.json"))
+        }
+        if let ax = files.ax {
+            try encoder.encode(ax).write(to: folder.appendingPathComponent("ax.json"))
+        }
+        if let state = files.state {
+            try encoder.encode(state).write(to: folder.appendingPathComponent("state.json"))
+        }
+        if let png = files.renderedPNG {
+            try png.write(to: folder.appendingPathComponent("screen-rendered.png"))
+        }
+    }
+
     /// Stores one MetricKit payload. Returns its path relative to the mailbox.
+    /// MetricKit often hands over several payloads at once. The counter in the name keeps
+    /// two payloads from the same millisecond in two files.
     public func storeMetricKit(_ data: Data, type: String, at time: Date = Date()) throws -> String {
+        metricKitCounter += 1
         let millis = Int64(time.timeIntervalSince1970 * 1000)
-        let relative = "metrickit/\(millis)-\(type).json"
+        let relative = "metrickit/\(millis)-\(metricKitCounter)-\(type).json"
         try Self.writeAtomically(data, to: root.appendingPathComponent(relative))
         return relative
     }

@@ -16,4 +16,10 @@ struct JSONValueTests {
         #expect(String(decoding: data, as: UTF8.self) == #"{"a":[1,2],"b":{"c":false},"d":null}"#)
         #expect(try FieldbookJSON.decoder().decode(JSONValue.self, from: data) == value)
     }
+
+    @Test func numbersJSONCannotHoldAreWrittenAsNull() throws {
+        let value: JSONValue = [.number(.nan), .number(.infinity), .number(-Double.infinity), 1]
+        let data = try FieldbookJSON.encoder().encode(value)
+        #expect(String(decoding: data, as: UTF8.self) == "[null,null,null,1]")
+    }
 }

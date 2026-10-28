@@ -57,6 +57,22 @@ public struct Snapshot: Codable, Sendable, Equatable {
         self.ax = ax
         self.problems = problems
     }
+
+    /// Writes every key. A missing value is written as null, as docs/FORMAT.md shows.
+    public func encode(to encoder: any Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(formatVersion, forKey: .formatVersion)
+        try container.encode(id, forKey: .id)
+        try container.encode(time, forKey: .time)
+        try container.encode(reason, forKey: .reason)
+        try container.encode(markId, forKey: .markId)
+        try container.encode(commandId, forKey: .commandId)
+        try container.encode(ms, forKey: .ms)
+        try container.encode(parts, forKey: .parts)
+        try container.encode(tree, forKey: .tree)
+        try container.encode(ax, forKey: .ax)
+        try container.encode(problems, forKey: .problems)
+    }
 }
 
 /// tree.json and ax.json: one root node per window, and the node count.
@@ -84,16 +100,27 @@ public struct WindowTree<Node: Codable & Sendable & Equatable>: Codable, Sendabl
     public var isKey: Bool
     public var title: RedactedText?
     /// The window's frame on the screen.
-    public var frame: Rect
+    public var frame: LayoutRect
     public var root: Node
 
-    public init(index: Int, number: Int?, isKey: Bool, title: RedactedText?, frame: Rect, root: Node) {
+    public init(index: Int, number: Int?, isKey: Bool, title: RedactedText?, frame: LayoutRect, root: Node) {
         self.index = index
         self.number = number
         self.isKey = isKey
         self.title = title
         self.frame = frame
         self.root = root
+    }
+
+    /// Writes every key. `number` and `title` are written as null when missing, as docs/FORMAT.md asks.
+    public func encode(to encoder: any Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(index, forKey: .index)
+        try container.encode(number, forKey: .number)
+        try container.encode(isKey, forKey: .isKey)
+        try container.encode(title, forKey: .title)
+        try container.encode(frame, forKey: .frame)
+        try container.encode(root, forKey: .root)
     }
 }
 
@@ -104,7 +131,7 @@ public typealias AXTree = Tree<AXNode>
 public struct ViewNode: Codable, Sendable, Equatable {
     public var type: String
     /// In window points.
-    public var frame: Rect
+    public var frame: LayoutRect
     public var window: Int
     public var hidden: Bool
     public var alpha: Double
@@ -117,7 +144,7 @@ public struct ViewNode: Codable, Sendable, Equatable {
 
     public init(
         type: String,
-        frame: Rect,
+        frame: LayoutRect,
         window: Int,
         hidden: Bool,
         alpha: Double,
@@ -160,9 +187,9 @@ public struct AXInfo: Codable, Sendable, Equatable {
 
 /// Where a scroll view is scrolled to, and how big its content is.
 public struct ScrollInfo: Codable, Sendable, Equatable {
-    public var offset: Point
-    public var content: Size
-    public init(offset: Point, content: Size) {
+    public var offset: LayoutPoint
+    public var content: LayoutSize
+    public init(offset: LayoutPoint, content: LayoutSize) {
         self.offset = offset
         self.content = content
     }
@@ -180,7 +207,7 @@ public struct AXNode: Codable, Sendable, Equatable {
     public var source: Source
     public var type: String
     /// In window points.
-    public var frame: Rect
+    public var frame: LayoutRect
     public var id: String?
     public var label: RedactedText?
     public var value: RedactedText?
@@ -190,7 +217,7 @@ public struct AXNode: Codable, Sendable, Equatable {
     public init(
         source: Source,
         type: String,
-        frame: Rect,
+        frame: LayoutRect,
         id: String?,
         label: RedactedText?,
         value: RedactedText?,

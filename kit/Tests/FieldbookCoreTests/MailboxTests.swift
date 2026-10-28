@@ -5,9 +5,9 @@ import Testing
 struct MailboxTests {
     private let decoder = FieldbookJSON.decoder()
 
-    private func makeMailbox(rotateBytes: Int = Mailbox.defaultRotateBytes, maxOutboxItems: Int = 50) throws -> (Mailbox, URL) {
+    private func makeMailbox(rotateBytes: Int = Mailbox.defaultRotateBytes, maxOutboxItems: Int = 50) async throws -> (Mailbox, URL) {
         let root = try Fixtures.temporaryFolder().appendingPathComponent("Fieldbook")
-        let mailbox = try Mailbox(root: root, runId: "5C1E0A2B-RUN", rotateBytes: rotateBytes, maxOutboxItems: maxOutboxItems)
+        let mailbox = try await Mailbox(root: root, runId: "5C1E0A2B-RUN", rotateBytes: rotateBytes, maxOutboxItems: maxOutboxItems)
         return (mailbox, root)
     }
 
@@ -15,8 +15,8 @@ struct MailboxTests {
         ((try? FileManager.default.contentsOfDirectory(atPath: folder.path)) ?? []).sorted()
     }
 
-    @Test func createsTheLayout() throws {
-        let (_, root) = try makeMailbox()
+    @Test func createsTheLayout() async throws {
+        let (_, root) = try await makeMailbox()
         let names = files(in: root)
         for folder in ["inbox", "outbox", "snapshots", "metrickit"] {
             #expect(names.contains(folder))
@@ -24,7 +24,7 @@ struct MailboxTests {
     }
 
     @Test func recordsEventsAsLinesWithRisingSequence() async throws {
-        let (mailbox, root) = try makeMailbox()
+        let (mailbox, root) = try await makeMailbox()
         await mailbox.record(.launch(Launch(ms: 391)))
         await mailbox.record(.hang(Hang(start: Date(), ms: 300)))
         let text = try String(contentsOf: root.appendingPathComponent("events.jsonl"), encoding: .utf8)
@@ -36,18 +36,19 @@ struct MailboxTests {
     }
 
     @Test func rotatesAndKeepsTwoFiles() async throws {
-        let (mailbox, root) = try makeMailbox(rotateBytes: 400)
+        let (mailbox, root) = try await makeMailbox(rotateBytes: 400)
         for n in 0..<30 {
             await mailbox.record(.lifecycle(Lifecycle(state: n.isMultiple(of: 2) ? .active : .inactive)))
         }
         let names = files(in: root).filter { $0.hasPrefix("events") }
         #expect(names == ["events.1.jsonl", "events.jsonl"])
-        let size = try FileManager.default.attributesOfItem(atPath: root.appendingPathComponent("events.jsonl").path)[.size] as? Int
-        #expect((size ?? 0) <= 400)
+        let attributes = try FileManager.default.attributesOfItem(atPath: root.appendingPathComponent("events.jsonl").path)
+        let size = try #require(attributes[.size] as? NSNumber).intValue
+        #expect(size <= 400)
     }
 
     @Test func readsCommandsOnceAndDeletesTheirFiles() async throws {
-        let (mailbox, root) = try makeMailbox()
+        let (mailbox, root) = try await makeMailbox()
         let inbox = root.appendingPathComponent("inbox")
         try Fixtures.data("command-mark.json").write(to: inbox.appendingPathComponent("000001-mark.json"))
         let first = await mailbox.takeCommands()
@@ -62,7 +63,7 @@ struct MailboxTests {
     }
 
     @Test func aBrokenCommandFileIsDroppedAndReported() async throws {
-        let (mailbox, root) = try makeMailbox()
+        let (mailbox, root) = try await makeMailbox()
         let inbox = root.appendingPathComponent("inbox")
         try Data("not json".utf8).write(to: inbox.appendingPathComponent("000003-mark.json"))
         // A young broken file may still be in the middle of a copy, so it stays.
@@ -77,7 +78,7 @@ struct MailboxTests {
     }
 
     @Test func storesASnapshotAndPrunesItAfterAck() async throws {
-        let (mailbox, root) = try makeMailbox()
+        let (mailbox, root) = try await makeMailbox()
         let id = await mailbox.nextSnapshotId()
         #expect(id == "5c1e0a2b-0001")
         let info = Snapshot(id: id, time: Date(), reason: .command, ms: 12, parts: [.state], tree: nil, ax: nil)
@@ -93,17 +94,29 @@ struct MailboxTests {
         #expect(files(in: root.appendingPathComponent("outbox")).isEmpty)
     }
 
+    @Test func twoMetricKitPayloadsInTheSameMillisecondKeepTheirOwnFiles() async throws {
+        let (mailbox, root) = try await makeMailbox()
+        let time = Date(timeIntervalSince1970: 1_793_000_000)
+        let first = try await mailbox.storeMetricKit(Data("first".utf8), type: "diagnostics", at: time)
+        let second = try await mailbox.storeMetricKit(Data("second".utf8), type: "diagnostics", at: time)
+        #expect(first != second)
+        let firstData = try Data(contentsOf: root.appendingPathComponent(first))
+        let secondData = try Data(contentsOf: root.appendingPathComponent(second))
+        #expect(firstData == Data("first".utf8))
+        #expect(secondData == Data("second".utf8))
+    }
+
     @Test func outboxSequenceSurvivesARelaunch() async throws {
-        let (mailbox, root) = try makeMailbox()
+        let (mailbox, root) = try await makeMailbox()
         _ = try await mailbox.addOutbox(kind: .result, ok: true)
         _ = try await mailbox.addOutbox(kind: .result, ok: true)
-        let again = try Mailbox(root: root, runId: "OTHER-RUN")
+        let again = try await Mailbox(root: root, runId: "OTHER-RUN")
         let item = try await again.addOutbox(kind: .result, ok: true)
         #expect(item.seq == 3)
     }
 
     @Test func dropsTheOldestOutboxItemsWhenNobodyAcknowledges() async throws {
-        let (mailbox, root) = try makeMailbox(maxOutboxItems: 3)
+        let (mailbox, root) = try await makeMailbox(maxOutboxItems: 3)
         for _ in 0..<5 {
             _ = try await mailbox.addOutbox(kind: .result, ok: true)
         }
@@ -113,7 +126,7 @@ struct MailboxTests {
     }
 
     @Test func leavesNoTemporaryFiles() async throws {
-        let (mailbox, root) = try makeMailbox()
+        let (mailbox, root) = try await makeMailbox()
         try await mailbox.writeHello(TestData.hello)
         _ = try await mailbox.addOutbox(kind: .result, ok: true)
         let all = (FileManager.default.enumerator(atPath: root.path)?.allObjects as? [String]) ?? []

@@ -29,6 +29,9 @@ public enum JSONValue: Sendable, Equatable, Codable {
         switch self {
         case .null: try container.encodeNil()
         case .bool(let value): try container.encode(value)
+        // JSON has no NaN or infinity. Such a number is written as null, so one bad value
+        // does not make the whole file fail.
+        case .number(let value) where !value.isFinite: try container.encodeNil()
         case .number(let value): try container.encode(value)
         case .string(let value): try container.encode(value)
         case .array(let value): try container.encode(value)

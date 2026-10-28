@@ -33,9 +33,17 @@ public enum FieldbookJSON {
         return decoder
     }
 
-    /// `2026-11-04T10:15:02.123Z`
+    /// `2026-11-04T10:15:02.123Z`, rounded to the nearest millisecond.
+    /// We add the milliseconds ourselves: the format style cuts them off instead of rounding,
+    /// and a time read as .390 is stored as .38999…, so the style would write .389.
     public static func string(from date: Date) -> String {
-        date.formatted(Date.ISO8601FormatStyle(includingFractionalSeconds: true))
+        let millis = (date.timeIntervalSince1970 * 1000).rounded()
+        let seconds = (millis / 1000).rounded(.down)
+        // For example "2026-11-04T10:15:02Z". The time zone is UTC, so it always ends with "Z".
+        let wholeSeconds = Date(timeIntervalSince1970: seconds).formatted(.iso8601)
+        let fraction = String(Int(millis - seconds * 1000))
+        let padding = String(repeating: "0", count: 3 - fraction.count)
+        return "\(wholeSeconds.dropLast()).\(padding)\(fraction)Z"
     }
 
     /// Reads a date with or without milliseconds.

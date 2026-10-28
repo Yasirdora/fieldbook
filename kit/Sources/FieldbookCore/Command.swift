@@ -91,4 +91,22 @@ public struct OutboxItem: Codable, Sendable, Equatable {
         self.markId = markId
         self.file = file
     }
+
+    /// Writes every key. A missing value is written as null, as docs/FORMAT.md shows.
+    public func encode(to encoder: any Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(formatVersion, forKey: .formatVersion)
+        try container.encode(seq, forKey: .seq)
+        try container.encode(runId, forKey: .runId)
+        try container.encode(time, forKey: .time)
+        try container.encode(kind, forKey: .kind)
+        try container.encode(commandId, forKey: .commandId)
+        try container.encode(commandName, forKey: .commandName)
+        try container.encode(via, forKey: .via)
+        try container.encode(ok, forKey: .ok)
+        try container.encode(message, forKey: .message)
+        try container.encode(snapshotId, forKey: .snapshotId)
+        try container.encode(markId, forKey: .markId)
+        try container.encode(file, forKey: .file)
+    }
 }
