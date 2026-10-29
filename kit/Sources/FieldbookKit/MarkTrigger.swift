@@ -99,8 +99,9 @@ final class MarkTrigger {
     /// Nothing to do: the monitor sees key presses only while the app is active.
     func stop() {}
 
+    /// Control, Option and Command held (Shift not), and the M key. Caps Lock does not matter.
     private static func isMarkKey(_ event: NSEvent) -> Bool {
-        let modifiers = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+        let modifiers = event.modifierFlags.intersection([.control, .option, .command, .shift])
         return modifiers == [.control, .option, .command] && event.charactersIgnoringModifiers?.lowercased() == "m"
     }
 }
