@@ -46,8 +46,9 @@ typealias PlatformWindow = NSWindow
 /// The app's windows that are on screen.
 @MainActor
 enum AppWindows {
+    /// The visible windows that have content.
     static func foreground() -> [NSWindow] {
-        NSApplication.shared.windows.filter { $0.isVisible }
+        NSApplication.shared.windows.filter { $0.isVisible && $0.contentView != nil }
     }
 
     static func key(in windows: [NSWindow]) -> NSWindow? {
