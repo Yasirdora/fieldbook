@@ -27,6 +27,8 @@ extension Mailbox {
     }
 
     /// Stores a mark: its snapshot, the snapshot event, the mark event and an outbox item.
+    /// When the snapshot could not be stored, the outbox item names no snapshot, so the Mac
+    /// does not wait for files that will never come.
     func storeMark(_ capture: Capture, source: Mark.Source, name: String?, command: Command?, via: CommandEvent.Via?) -> Mark {
         let next = nextMark()
         let snapshotId = nextSnapshotId()
@@ -39,7 +41,7 @@ extension Mailbox {
             message: stored ? nil : "The snapshot could not be stored.",
             command: command,
             via: via,
-            snapshotId: snapshotId,
+            snapshotId: stored ? snapshotId : nil,
             markId: next.id
         )
         return mark

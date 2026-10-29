@@ -36,7 +36,8 @@ enum ViewTreeCapture {
     }
 
     private static func node(for view: NSView, children: [ViewNode], window: NSWindow, index: Int, redaction: Redaction) -> ViewNode {
-        ViewNode(
+        let isPassword = isPasswordView(view)
+        return ViewNode(
             type: Describe.typeName(of: view),
             frame: AppWindows.topLeft(view.convert(view.bounds, to: nil), in: window),
             window: index,
@@ -44,28 +45,44 @@ enum ViewTreeCapture {
             alpha: Double(view.alphaValue),
             // AppKit has no flag for this, so it is always true (see docs/FORMAT.md).
             interactive: true,
-            ax: accessibility(of: view, redaction: redaction),
-            text: text(of: view).map { redaction.redact($0) },
+            ax: accessibility(of: view, showsValue: !isPassword, redaction: redaction),
+            text: isPassword ? nil : text(of: view).map { redaction.redact($0) },
             scroll: scroll(of: view),
             children: children
         )
     }
 
-    private static func accessibility(of view: NSView, redaction: Redaction) -> AXInfo? {
+    private static func accessibility(of view: NSView, showsValue: Bool, redaction: Redaction) -> AXInfo? {
         let label = Describe.nonEmpty(view.accessibilityLabel()) ?? Describe.nonEmpty(view.accessibilityTitle())
+        let value = showsValue ? AccessibilityText.value(view.accessibilityValue()) : nil
         let info = AXInfo(
             id: Describe.nonEmpty(view.accessibilityIdentifier()),
             label: label.map { redaction.redact($0) },
-            value: AccessibilityText.value(view.accessibilityValue()).map { redaction.redact($0) },
+            value: value.map { redaction.redact($0) },
             traits: TraitNames.names(of: view)
         )
         return info.isEmpty ? nil : info
     }
 
-    /// The text the view shows itself. Password fields give none.
+    /// True for a password field, for every view inside one, and for its field editor.
+    /// While the tester types, AppKit puts the field editor (an NSTextView that holds the typed
+    /// characters) inside the field and makes the field its delegate. Such views give no text
+    /// and no accessibility value.
+    private static func isPasswordView(_ view: NSView) -> Bool {
+        if let editor = view as? NSTextView, editor.isFieldEditor, editor.delegate is NSSecureTextField {
+            return true
+        }
+        var current: NSView? = view
+        while let candidate = current {
+            if candidate is NSSecureTextField { return true }
+            current = candidate.superview
+        }
+        return false
+    }
+
+    /// The text the view shows itself. Password views are handled by `isPasswordView(_:)`.
     private static func text(of view: NSView) -> String? {
         switch view {
-        case is NSSecureTextField: nil
         case let field as NSTextField: field.stringValue
         case let button as NSButton: button.title
         case let textView as NSTextView: textView.string

@@ -46,11 +46,21 @@ typealias PlatformWindow = NSWindow
 /// The app's windows that are on screen.
 @MainActor
 enum AppWindows {
-    /// The visible windows that have content.
+    /// The visible windows that have content, front-most first. `NSApp.windows` has no fixed
+    /// order, and while the app is not active no window is key or main, so the order matters.
     static func foreground() -> [NSWindow] {
-        NSApplication.shared.windows.filter { $0.isVisible && $0.contentView != nil }
+        let frontToBack = (NSWindow.windowNumbers(options: .allSpaces) ?? []).map(\.intValue)
+        return NSApplication.shared.windows
+            .filter { $0.isVisible && $0.contentView != nil }
+            .sorted { place(of: $0, in: frontToBack) < place(of: $1, in: frontToBack) }
     }
 
+    /// The window's place in `frontToBack`. A window missing from it goes last.
+    private static func place(of window: NSWindow, in frontToBack: [Int]) -> Int {
+        frontToBack.firstIndex(of: window.windowNumber) ?? frontToBack.count
+    }
+
+    /// The key window, else the main window, else the front-most window.
     static func key(in windows: [NSWindow]) -> NSWindow? {
         windows.first(where: { $0.isKeyWindow }) ?? windows.first(where: { $0.isMainWindow }) ?? windows.first
     }

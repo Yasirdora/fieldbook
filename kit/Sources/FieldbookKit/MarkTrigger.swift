@@ -6,8 +6,8 @@ import UIKit
 /// iOS: a shake of the device marks a moment.
 ///
 /// While the app is active, the accelerometer runs at 10 Hz and is read 10 times a second.
-/// No permission is needed for it. Two readings above 2.3 g within half a second count as a
-/// shake. The simulator has no accelerometer, so this does nothing there.
+/// No permission is needed for it. Two samples above 2.3 g within half a second count as a
+/// shake; each sample counts once. The simulator has no accelerometer, so this does nothing there.
 @MainActor
 final class MarkTrigger {
     static let source = Mark.Source.shake
@@ -22,6 +22,9 @@ final class MarkTrigger {
     private let onMark: @MainActor @Sendable () -> Void
     private var reader: Task<Void, Never>?
     private var lastPeak = Date.distantPast
+    /// The timestamp of the last sample that was checked. The reader is not in step with the
+    /// sensor and can see one sample twice. One jolt must not count as two peaks.
+    private var lastSampleTime: TimeInterval = 0
 
     init(onMark: @escaping @MainActor @Sendable () -> Void) {
         self.onMark = onMark
@@ -51,7 +54,9 @@ final class MarkTrigger {
     }
 
     private func read() {
-        guard let acceleration = motion.accelerometerData?.acceleration else { return }
+        guard let data = motion.accelerometerData, data.timestamp != lastSampleTime else { return }
+        lastSampleTime = data.timestamp
+        let acceleration = data.acceleration
         let g = (acceleration.x * acceleration.x + acceleration.y * acceleration.y + acceleration.z * acceleration.z).squareRoot()
         guard g > Self.peakG else { return }
         let now = Date()

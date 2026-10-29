@@ -32,6 +32,7 @@ final class Probe {
     private var sampler: Task<Void, Never>?
 
     private var isActive = false
+    private var isReadingLogs = false
     private var launchRecorded = false
     private var peakFootprint: UInt64 = 0
     private var memoryProblemRecorded = false
@@ -164,12 +165,22 @@ final class Probe {
 
     /// Launch time: from the moment the kernel started the process to the first "active".
     private func recordLaunch() {
+        if Self.wasPrewarmed {
+            record(.problem(Problem(location: "launch", message: "The system prewarmed the process, so the launch time was not measured.")))
+            return
+        }
         guard let processStart = info.processStart else {
             record(.problem(Problem(location: "launch", message: "The process start time is unknown, so the launch time was not measured.")))
             return
         }
         let ms = Int((Date().timeIntervalSince(processStart) * 1000).rounded())
         record(.launch(Launch(ms: max(ms, 0))))
+    }
+
+    /// iOS can start ("prewarm") the process long before the user opens the app. Then the
+    /// process start time says nothing about the launch. macOS never sets this variable.
+    private static var wasPrewarmed: Bool {
+        ProcessInfo.processInfo.environment["ActivePrewarm"] == "1"
     }
 
     private func catchUpIfAlreadyActive() {
@@ -181,9 +192,11 @@ final class Probe {
 
     // MARK: Sampling (only while active)
 
+    /// Low priority, so the probe's background work does not compete with the app.
+    /// Tasks started from the sampler (log reads, mailbox steps) get the same priority.
     private func startSampling() {
         let interval = max(options.sampleInterval, 0.5)
-        sampler = Task { [weak self] in
+        sampler = Task(priority: .utility) { [weak self] in
             while !Task.isCancelled {
                 guard let self else { return }
                 self.sample()
@@ -210,14 +223,18 @@ final class Probe {
         record(.memory(Memory(footprint: footprint, peak: peakFootprint)))
     }
 
+    /// Reads new log entries off the main thread. While a read still runs, no new one starts,
+    /// so slow reads do not pile up.
     private func exportLogs() {
-        guard let logExporter else { return }
+        guard let logExporter, !isReadingLogs else { return }
+        isReadingLogs = true
         Task { [weak self] in
             let batch = await logExporter.read()
             var payloads = batch.lines.map { Event.Payload.log($0) }
             if let problem = batch.problem {
                 payloads.append(.problem(problem))
             }
+            self?.isReadingLogs = false
             self?.record(payloads)
         }
     }
@@ -283,7 +300,12 @@ final class Probe {
     }
 
     /// Takes the requested parts on the main thread. Storing them happens later, off it.
+    /// The watchdog pauses meanwhile: the probe's own work is not a hang of the app.
     private func takeCapture(parts requested: [Snapshot.Part]) -> Capture {
+        watchdog?.pause()
+        defer {
+            if isActive { watchdog?.resume() }
+        }
         let started = DispatchTime.now().uptimeNanoseconds
         let time = Date()
         let parts = Snapshot.Part.allCases.filter { requested.contains($0) }
