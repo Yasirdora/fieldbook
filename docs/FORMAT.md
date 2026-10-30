@@ -12,6 +12,9 @@ Shared test files for the formats are in `fixtures/format-v1/`. The Swift tests 
 - Text is UTF-8. JSON keys are written in sorted order.
 - Every JSON file has `"formatVersion": 1` at the top level. Every event line has it too.
 - A reader accepts files with the same `formatVersion`. It ignores fields it does not know. A higher version means a breaking change: the reader stops and says so.
+- An optional field is either `null` or missing; readers treat both the same. The kit writes `null`
+  in hello.json, outbox items, snapshot.json and window entries, and leaves optional fields out of
+  view and accessibility nodes (to keep big trees small).
 - Times are ISO 8601 in UTC with milliseconds: `2026-11-04T10:15:02.123Z`.
 - Sizes and positions are in **points**, the unit iOS and macOS use for layout (not pixels).
 - A *rect* is `{"x": 0, "y": 0, "w": 390, "h": 844}`. The origin is top left.
@@ -117,7 +120,7 @@ One event per line. Every event has the same envelope, and one payload under a k
 
 | kind | payload | meaning |
 |---|---|---|
-| `launch` | `{"ms": 412}` | From process start to the first time the app became active. |
+| `launch` | `{"ms": 412}` | From process start to the first time the app became active. A launch that iOS prewarmed (`ActivePrewarm=1`) is not a real launch time; the kit records a `problem` with `where: "launch"` instead. |
 | `lifecycle` | `{"state": "active"}` | `active`, `inactive` or `background`. |
 | `log` | `{"level", "subsystem", "category", "message", "cut", "logTime"}` | One log entry of this process. `level` is `undefined`, `debug`, `info`, `notice`, `error` or `fault`. `cut` is true when the message was longer than 500 characters. |
 | `hang` | `{"start": time, "ms": 412}` | The main thread did not answer for `ms` milliseconds (only stalls of at least `hangThresholdMs`). |
@@ -176,7 +179,9 @@ Snapshot ids look like `5c1e0a2b-0004`: the first 8 characters of the run id, th
 }
 ```
 
-A view node:
+A view node (type names drop generic arguments, for example `_UIHostingView`; frames are rounded to
+1/100 point, and a frame that is not a finite number is written as 0; password fields give no text and
+no accessibility value):
 
 | field | meaning |
 |---|---|

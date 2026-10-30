@@ -20,15 +20,20 @@ export const CLOCK_MARGIN_MS = 2_000;
 /** How many pulls an outbox item may hold back the ack while its files are missing. */
 export const ACK_PATIENCE = 5;
 
+/** How many pulls a named snapshot or MetricKit file is waited for before it is given up. */
+export const PENDING_PATIENCE = 30;
+
 /** A name from the mailbox that may become one part of a path. */
 export function isSafeName(name: unknown): name is string {
   return typeof name === "string" && /^[A-Za-z0-9._-]{1,200}$/.test(name) && !name.startsWith(".");
 }
 
-type Pending =
+/** A copy that waits for its files; `tries` counts the pulls it has waited. */
+type Pending = { tries?: number } & (
   | { kind: "markSnapshot"; snapshotId: string; markId: string }
   | { kind: "snapshot"; snapshotId: string }
-  | { kind: "metrickit"; file: string };
+  | { kind: "metrickit"; file: string }
+);
 
 /** How far ingest has read one run's events, and the sequence numbers it has not seen yet. */
 interface RunProgress {
@@ -342,12 +347,30 @@ class IngestRun {
   private retryPending(): void {
     this.state.pending = this.state.pending.filter((pending) => {
       try {
-        return !this.tryPending(pending);
+        if (this.tryPending(pending)) return false;
       } catch (error) {
         this.problem(`a ${pending.kind} copy failed and was dropped: ${(error as Error).message}`);
         return false;
       }
+      pending.tries = (pending.tries ?? 0) + 1;
+      if (pending.tries < PENDING_PATIENCE) return true;
+      this.giveUp(pending);
+      return false;
     });
+  }
+
+  /** Stops waiting for files that never arrived, and says so in the timeline and the mark. */
+  private giveUp(pending: Pending): void {
+    const what = pending.kind === "metrickit" ? pending.file : `snapshot ${pending.snapshotId}`;
+    const reason = `${what} never arrived (waited ${PENDING_PATIENCE} pulls)`;
+    this.problem(reason);
+    if (pending.kind !== "markSnapshot") return;
+    const mark = this.state.marks.find((filed) => filed.id === pending.markId);
+    if (!mark) return;
+    const markDir = path.join(this.sessionDir, mark.dir);
+    const markFile = readMarkFile(markDir);
+    for (const part of SNAPSHOT_PARTS) markFile.parts[part.part] = missing(reason);
+    writeMarkFile(markDir, markFile);
   }
 
   /** True when the pending copy is done (or can never be done). */

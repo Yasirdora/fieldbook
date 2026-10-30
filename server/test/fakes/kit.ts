@@ -26,6 +26,7 @@ export class FakeKit {
   private outboxSeq = 0;
   private snapshots = 0;
   private marks = 0;
+  private metricKitCount = 0;
 
   constructor(dir: string, options: FakeKitOptions) {
     this.dir = dir;
@@ -200,7 +201,8 @@ export class FakeKit {
 
   /** A MetricKit payload, stored like the kit stores it. Returns its path in the mailbox. */
   metricKit(type: "metrics" | "diagnostics"): string {
-    const file = `metrickit/${this.options.now().getTime()}-${type}.json`;
+    this.metricKitCount++;
+    const file = `metrickit/${this.options.now().getTime()}-${this.metricKitCount}-${type}.json`;
     fs.writeFileSync(path.join(this.dir, file), JSON.stringify({ timeStampBegin: this.now(), invented: true }));
     this.event("metrickit", { file, type });
     this.outbox("metrickit", { ok: true, file });

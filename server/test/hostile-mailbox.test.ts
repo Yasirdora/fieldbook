@@ -118,3 +118,15 @@ test("evidence.json never carries the device id, the device name or the Mac's na
   assert.doesNotMatch(text, /Test iPhone/);
   assert.doesNotMatch(text, /Test Mac/);
 });
+
+test("a mark whose snapshot never arrives stops being waited for, and says so", async () => {
+  const { ctx, kit, id, dir } = await recording();
+  kit.event("mark", { id: "x-m9", number: 9, name: "lost", source: "shake", snapshotId: "5c1e0a2b-0999" });
+  const recorder = ctx.recorders.get(id);
+  for (let pull = 0; pull < 32; pull++) await recorder?.pullOnce();
+  const state = JSON.parse(fs.readFileSync(path.join(dir, "raw/ingest.json"), "utf8"));
+  assert.equal(state.pending.length, 0);
+  const mark = JSON.parse(fs.readFileSync(path.join(dir, "marks/1-lost/mark.json"), "utf8"));
+  assert.match(mark.parts.tree.reason, /never arrived/);
+  assert.ok(timeline(dir).some((entry) => entry.kind === "problem" && /never arrived/.test(entry.problem.message)));
+});

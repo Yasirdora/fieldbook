@@ -1,6 +1,5 @@
 import SwiftUI
 #if DEBUG
-import FieldbookCore
 import FieldbookKit
 #endif
 

@@ -22,4 +22,27 @@ struct JSONValueTests {
         let data = try FieldbookJSON.encoder().encode(value)
         #expect(String(decoding: data, as: UTF8.self) == "[null,null,null,1]")
     }
+
+    @Test func runTimeValuesBecomeJSONValues() {
+        let page = 12
+        let zoom = 1.5
+        let selected: String? = "n3"
+        let nothing: String? = nil
+        let value: JSONValue = [
+            "page": .init(page),
+            "zoom": .init(zoom),
+            "pinned": .init(true),
+            "selected": .init(selected),
+            "missing": .init(nothing),
+            "tags": .init(["garden", "spring"]),
+            "counts": .init(["notes": 5, "pinned": 2]),
+        ]
+        #expect(value["page"] == .number(12))
+        #expect(value["zoom"] == .number(1.5))
+        #expect(value["pinned"] == .bool(true))
+        #expect(value["selected"] == .string("n3"))
+        #expect(value["missing"] == .null)
+        #expect(value["tags"] == .array([.string("garden"), .string("spring")]))
+        #expect(value["counts"] == .object(["notes": .number(5), "pinned": .number(2)]))
+    }
 }
