@@ -43,8 +43,8 @@ cd ..
 ```
 
 **Look for:** compile errors first — this code was never compiled. Then the Swift Testing summary
-(`RedactionTests`, `FormatFixtureTests`, `MailboxTests`, `TreeWalkTests`, `JSONValueTests` and the
-banned-code test). The `xcodebuild` line compiles the UIKit half of FieldbookKit, which `swift build`
+(`RedactionTests`, `FormatFixtureTests`, `MailboxTests`, `TreeWalkTests`, `JSONValueTests` and
+`KitSourceRulesTests`). On a Mac, `swift build` also compiles FieldbookKit's AppKit half. The `xcodebuild` line compiles the UIKit half of FieldbookKit, which `swift build`
 on a Mac does not reach.
 **Pass:** both builds end without errors in Swift 6 language mode; every test passes. Fix compile
 errors in place (small, clean fixes), and log each one in TEST-LOG.md.
@@ -94,6 +94,7 @@ Call `session_start` with
 `{"target": "simulator", "device": "<UDID>", "bundleId": "com.example.sparrowpad", "label": "sim first run", "build": "<git short sha>", "change": "TEST-1", "relaunch": true}`.
 In the app: tap **Freeze 400 ms**, **Use 50 MB** twice, **Log an error**. Call `mark {"session": "<id>", "name": "list"}`.
 Open the note "Bike repair steps" (it is pinned). Call `mark {"session": "<id>", "name": "detail"}`.
+(Shake marks cannot be tested here: the simulator has no accelerometer. Step 14 tests them on the phone.)
 Tap **Show a sheet**, then `snapshot {"session": "<id>"}`. Tap **Done**, then **Crash**. Wait 10 s.
 Call `session_stop {"session": "<id>"}`, then `timeline {"session": "<id>"}`.
 
@@ -146,7 +147,7 @@ Use the simulator session from step 5:
 find {"session": "<id>", "mark": "detail", "query": "id:pinnedBadge"}
 find {"session": "<id>", "mark": "list", "query": "id:noteRow-n3"}
 find {"session": "<id>", "mark": "detail", "query": "id:pinnedBadge", "inside": "id:noteTitle"}
-find {"session": "<id>", "mark": "detail", "query": "type:UIHostingView"}
+find {"session": "<id>", "mark": "detail", "query": "type:_UIHostingView"}
 ```
 
 ```bash

@@ -62,3 +62,13 @@ An adversarial review (3 finders, 3 skeptics) read the server. These rows record
 | 28 | `node --test test/recording-robustness.test.ts` | 7 | red: 0 pass, 7 fail | A foreign command id was trusted for a capture; two recorders after a restart; work after stop; a failed relaunch reported as done (stderr lost); two sessions on one app; crash logs matched by prefix only; the Mac capture used the newest snapshot's window, not the mark's. |
 | 29 | same, after the fixes | 7 | red: 6 pass, 1 fail | The test's own ordering: `sessionStop` reaches the recorder only after one `await`, so its "late" pull was really queued before the stop. The test now queues it after both stops started. No code changed for it. |
 | 30 | `npm test` | 122 | green: 122 pass | `tsc` clean. |
+| 31 | `node --test test/hostile-mailbox.test.ts` | 8 | red: 7 pass, 1 fail | New test: a mark naming a snapshot that never arrives was waited for forever (raised by the kit fixer). |
+| 32 | `npm test` | 123 | green: 123 pass | Pending copies now give up after 30 pulls and say so; `tsc` clean. |
+
+## Swift (written, not run)
+
+Test files in
+`kit/Tests/FieldbookCoreTests/`: `RedactionTests`, `FormatFixtureTests`, `MailboxTests`,
+`TreeWalkTests`, `JSONValueTests`, `KitSourceRulesTests`. Checks that did run here on the Swift code:
+the node scan `server/test/kit-rules.test.ts` (4 pass) and, by the kit writer, a tree-sitter Swift
+grammar parse of the 23 kit files (no syntax errors) — a grammar check, not a compile.

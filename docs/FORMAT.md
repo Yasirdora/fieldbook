@@ -71,7 +71,7 @@ Fieldbook/
     ax.json
     state.json
     screen-rendered.png
-  metrickit/<file>.json
+  metrickit/<ms>-<n>-<type>.json
   inbox/<seq>-<name>.json   (commands from the Mac)
   outbox/<seq>-<kind>.json  (results for the Mac)
 ```
@@ -140,7 +140,7 @@ A snapshot is a picture of the app at one moment: its views, its accessibility e
 
 Snapshot ids look like `5c1e0a2b-0004`: the first 8 characters of the run id, then a counter.
 
-`snapshot.json`:
+`snapshot.json` (`tree` and `ax` are `null` when that part was not taken):
 
 ```json
 {
@@ -267,6 +267,9 @@ The app writes one outbox item for each thing it made for the Mac. The app count
 ```
 
 `kind` is `result` (answer to a command), `mark` (a mark, from any source) or `metrickit` (a MetricKit file in `file`).
+When a mark's snapshot could not be stored, its outbox item has `"snapshotId": null`, while the mark
+event still names the id it tried. The server waits for such a snapshot for 30 pulls, then gives up
+and says so in the mark and the timeline.
 
 After each outbox write the app posts the Darwin notification `fieldbook.<bundle id>.outbox`.
 
