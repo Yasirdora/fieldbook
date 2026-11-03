@@ -21,13 +21,17 @@ enum AccessibilityTreeCapture {
 
     static func capture(windows: [UIWindow], redaction: Redaction) -> AXTree {
         var budget = NodeBudget()
+        var reached = ReachedObjects()
         var trees: [WindowTree<AXNode>] = []
         for (index, window) in windows.enumerated() {
             let screenSpace = window.windowScene?.screen.coordinateSpace
+            _ = reached.isNew(window)
             let root = TreeWalk.build(
                 Item(object: window, source: .uikitView),
                 budget: &budget,
-                children: { children(of: $0) },
+                // `accessibilityElements` can list any object, even one the walk has
+                // already reached, so each object is walked only the first time.
+                children: { item in children(of: item).filter { reached.isNew($0.object) } },
                 make: { item, children in
                     node(for: item, children: children, window: window, screenSpace: screenSpace, redaction: redaction)
                 }
@@ -102,10 +106,17 @@ enum AccessibilityTreeCapture {
             frame: windowFrame(object.accessibilityFrame, window: window, screenSpace: screenSpace),
             id: Describe.nonEmpty((object as? UIAccessibilityIdentification)?.accessibilityIdentifier),
             label: Describe.nonEmpty(object.accessibilityLabel).map { redaction.redact($0) },
-            value: Describe.nonEmpty(object.accessibilityValue).map { redaction.redact($0) },
+            value: value(of: object, redaction: redaction),
             traits: TraitNames.names(of: object.accessibilityTraits),
             children: children
         )
+    }
+
+    /// The accessibility value. A password field gives none: its value is one bullet per
+    /// typed character, which would tell the password's length.
+    private static func value(of object: NSObject, redaction: Redaction) -> RedactedText? {
+        guard !PasswordViews.contains(object) else { return nil }
+        return Describe.nonEmpty(object.accessibilityValue).map { redaction.redact($0) }
     }
 
     /// `accessibilityFrame` is in screen coordinates; the JSON wants window points.

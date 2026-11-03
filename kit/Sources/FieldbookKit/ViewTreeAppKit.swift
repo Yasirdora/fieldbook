@@ -36,7 +36,7 @@ enum ViewTreeCapture {
     }
 
     private static func node(for view: NSView, children: [ViewNode], window: NSWindow, index: Int, redaction: Redaction) -> ViewNode {
-        let isPassword = isPasswordView(view)
+        let isPassword = PasswordViews.contains(view)
         return ViewNode(
             type: Describe.typeName(of: view),
             frame: AppWindows.topLeft(view.convert(view.bounds, to: nil), in: window),
@@ -64,23 +64,7 @@ enum ViewTreeCapture {
         return info.isEmpty ? nil : info
     }
 
-    /// True for a password field, for every view inside one, and for its field editor.
-    /// While the tester types, AppKit puts the field editor (an NSTextView that holds the typed
-    /// characters) inside the field and makes the field its delegate. Such views give no text
-    /// and no accessibility value.
-    private static func isPasswordView(_ view: NSView) -> Bool {
-        if let editor = view as? NSTextView, editor.isFieldEditor, editor.delegate is NSSecureTextField {
-            return true
-        }
-        var current: NSView? = view
-        while let candidate = current {
-            if candidate is NSSecureTextField { return true }
-            current = candidate.superview
-        }
-        return false
-    }
-
-    /// The text the view shows itself. Password views are handled by `isPasswordView(_:)`.
+    /// The text the view shows itself. Password views are handled by `PasswordViews`.
     private static func text(of view: NSView) -> String? {
         switch view {
         case let field as NSTextField: field.stringValue
@@ -98,6 +82,26 @@ enum ViewTreeCapture {
             offset: LayoutPoint(x: LayoutRect.points(offset.x), y: LayoutRect.points(offset.y)),
             content: LayoutSize(w: LayoutRect.points(size.width), h: LayoutRect.points(size.height))
         )
+    }
+}
+
+/// Password fields, for the view tree and the accessibility tree. They give no text and no
+/// accessibility value.
+@MainActor
+enum PasswordViews {
+    /// True for a password field, for every view inside one, and for its field editor.
+    /// While the tester types, AppKit puts the field editor (an NSTextView that holds the typed
+    /// characters) inside the field and makes the field its delegate.
+    static func contains(_ view: NSView) -> Bool {
+        if let editor = view as? NSTextView, editor.isFieldEditor, editor.delegate is NSSecureTextField {
+            return true
+        }
+        var current: NSView? = view
+        while let candidate = current {
+            if candidate is NSSecureTextField { return true }
+            current = candidate.superview
+        }
+        return false
     }
 }
 

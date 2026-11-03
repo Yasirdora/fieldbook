@@ -37,8 +37,15 @@ final class Watchdog: Sendable {
 
     /// `report` runs on the main thread after a stall has ended.
     init(thresholdMs: Int, report: @escaping @Sendable (Hang) -> Void) {
-        self.thresholdNanos = UInt64(max(thresholdMs, 1)) * 1_000_000
+        self.thresholdNanos = Watchdog.nanoseconds(ms: thresholdMs)
         self.report = report
+    }
+
+    /// At least 1 ms, in nanoseconds. A value too big for UInt64 becomes the largest one,
+    /// instead of overflowing (which would crash the app).
+    private static func nanoseconds(ms: Int) -> UInt64 {
+        let (nanos, overflow) = UInt64(max(ms, 1)).multipliedReportingOverflow(by: 1_000_000)
+        return overflow ? .max : nanos
     }
 
     /// Starts watching, with no ping waiting. A ping sent before this no longer counts, so time

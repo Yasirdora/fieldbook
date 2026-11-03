@@ -49,6 +49,10 @@ settingGroups:
         INFOPLIST_FILE: Config/Debug-Info.plist
         # Debug only: links the kit. Release has no such flags, so it contains no kit code.
         OTHER_LDFLAGS: "$(inherited) -framework FieldbookKit -framework FieldbookCore"
+        # Keep the app code and the kit in the main executable, not in a separate
+        # Sparrowpad.debug.dylib. The release check reads the main executable, so its
+        # Debug control run must find the kit there. (Release never makes this dylib.)
+        ENABLE_DEBUG_DYLIB: "NO"
 
 targets:
   # MARK: Kit for iOS

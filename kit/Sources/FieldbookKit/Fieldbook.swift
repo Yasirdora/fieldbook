@@ -17,8 +17,10 @@ public struct FieldbookOptions {
     /// `nil` reads the launch arguments: `-FieldbookText full` keeps the text, anything else hashes it.
     public var redaction: RedactionMode?
     /// The main thread must stall at least this long to count as a hang.
+    /// The probe uses 1 ms to 1 hour; a larger value, such as `Int.max`, counts as 1 hour.
     public var hangThresholdMs: Int
     /// Seconds between two memory samples, log reads and inbox reads (only while the app is active).
+    /// The probe uses 0.5 s to 1 hour; a larger value, such as `.infinity`, counts as 1 hour.
     public var sampleInterval: TimeInterval
     /// iOS: shaking the device marks a moment.
     public var shakeToMark: Bool
@@ -41,6 +43,24 @@ public struct FieldbookOptions {
         self.shakeToMark = shakeToMark
         self.keyToMark = keyToMark
         self.providers = providers
+    }
+}
+
+extension FieldbookOptions {
+    /// The longest hang threshold and sample interval the probe uses: one hour.
+    static let longestMs = 3_600_000
+
+    /// `hangThresholdMs` from 1 ms to 1 hour. Without the upper limit, the watchdog's
+    /// nanosecond math would overflow (and crash the app) for a value such as `Int.max`.
+    var usableHangThresholdMs: Int {
+        min(max(hangThresholdMs, 1), Self.longestMs)
+    }
+
+    /// `sampleInterval` from 0.5 s to 1 hour, and the default of 2 s for NaN.
+    /// `Duration.seconds` crashes on NaN, on infinity and on very large values.
+    var usableSampleInterval: TimeInterval {
+        guard !sampleInterval.isNaN else { return 2 }
+        return min(max(sampleInterval, 0.5), TimeInterval(Self.longestMs) / 1000)
     }
 }
 

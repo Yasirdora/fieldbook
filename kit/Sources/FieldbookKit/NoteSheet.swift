@@ -50,7 +50,11 @@ enum NoteSheet {
         alert.addButton(withTitle: "Skip")
         alert.accessoryView = field
         alert.window.initialFirstResponder = field
-        alert.beginSheetModal(for: window) { response in
+        // The async form of beginSheetModal. The task runs on the main actor, like this
+        // function, so reading the field and calling `completion` stay on the main thread.
+        // (The form with a completion handler may hand its closure over as nonisolated.)
+        Task {
+            let response = await alert.beginSheetModal(for: window)
             completion(response == .alertFirstButtonReturn ? field.stringValue : nil)
         }
     }

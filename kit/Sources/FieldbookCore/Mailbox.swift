@@ -331,8 +331,25 @@ public actor Mailbox {
         return digits.count >= width ? digits : String(repeating: "0", count: width - digits.count) + digits
     }
 
+    /// The server's rule for names that become paths (`isSafeName` in server/src/session/ingest.ts):
+    /// 1 to 200 ASCII letters, digits, ".", "_" and "-", and no "." at the start. A snapshot
+    /// stored under any other name would never be copied by the Mac.
     static func isSafeName(_ name: String) -> Bool {
-        !name.isEmpty && !name.hasPrefix(".") && !name.contains("/") && !name.contains("..")
+        let bytes = name.utf8
+        guard !bytes.isEmpty, bytes.count <= 200, !name.hasPrefix(".") else { return false }
+        return bytes.allSatisfy(isSafeNameByte)
+    }
+
+    /// True for an ASCII letter, a digit, ".", "_" or "-".
+    private static func isSafeNameByte(_ byte: UInt8) -> Bool {
+        switch byte {
+        case UInt8(ascii: "a")...UInt8(ascii: "z"), UInt8(ascii: "A")...UInt8(ascii: "Z"), UInt8(ascii: "0")...UInt8(ascii: "9"):
+            return true
+        case UInt8(ascii: "."), UInt8(ascii: "_"), UInt8(ascii: "-"):
+            return true
+        default:
+            return false
+        }
     }
 
     static func isSafeMetricKitPath(_ path: String) -> Bool {

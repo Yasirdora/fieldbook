@@ -113,6 +113,22 @@ echo "$(xcrun simctl get_app_container "$UDID" com.example.sparrowpad data)/Libr
 
 When you are done: `xcrun simctl delete "$UDID"`.
 
+### iOS, on a phone
+
+A build for a real device must be signed with your development team. The project leaves the team out, so pass your 10-character team id to `xcodebuild` (replace `ABCDE12345`):
+
+```sh
+xcodebuild -project demo/Sparrowpad.xcodeproj -scheme Sparrowpad-iOS \
+  -configuration Debug \
+  -destination "platform=iOS,id=<the phone's UDID>" \
+  -derivedDataPath demo/DerivedData \
+  -allowProvisioningUpdates DEVELOPMENT_TEAM=ABCDE12345 \
+  FIELDBOOK_COMMIT=$(git rev-parse --short HEAD) \
+  build
+```
+
+The kit targets get the team too, but they are not signed (`CODE_SIGNING_ALLOWED = NO`), so that does no harm. If Apple does not let your team register `com.example.sparrowpad`, also pass `PRODUCT_BUNDLE_IDENTIFIER=<an id of your own>` and use that id wherever these steps say `com.example.sparrowpad`.
+
 ### macOS
 
 Debug:

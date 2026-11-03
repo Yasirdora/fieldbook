@@ -133,6 +133,17 @@ struct MailboxTests {
         #expect(!all.contains { URL(fileURLWithPath: $0).lastPathComponent.hasPrefix(".") })
     }
 
+    /// The same rule as `isSafeName` in server/src/session/ingest.ts, so the kit never stores
+    /// a snapshot the Mac would refuse to copy.
+    @Test func safeNamesFollowTheServersRule() {
+        for name in ["5c1e0a2b-0001", "5c1e0a2b-m3", "a.b_c-D9", "a..b", String(repeating: "a", count: 200)] {
+            #expect(Mailbox.isSafeName(name), "\(name) should be safe")
+        }
+        for name in ["", ".hidden", "..", "a/b", "a b", "a+b", "caf\u{E9}", String(repeating: "a", count: 201)] {
+            #expect(!Mailbox.isSafeName(name), "\(name) should not be safe")
+        }
+    }
+
     @Test func mailboxFolderDependsOnSandbox() {
         let support = URL(fileURLWithPath: "/Users/tester/Library/Application Support")
         #expect(

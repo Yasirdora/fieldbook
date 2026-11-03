@@ -50,7 +50,7 @@ final class Probe {
         lifecycle = LifecycleObserver { [weak self] state in
             self?.lifecycleChanged(state)
         }
-        watchdog = Watchdog(thresholdMs: options.hangThresholdMs) { [weak self] hang in
+        watchdog = Watchdog(thresholdMs: options.usableHangThresholdMs) { [weak self] hang in
             Task { @MainActor in self?.record(.hang(hang)) }
         }
         if MarkTrigger.isEnabled(in: options) {
@@ -75,7 +75,7 @@ final class Probe {
     private func openMailbox() {
         let info = self.info
         let redaction = self.redaction
-        let hangThresholdMs = options.hangThresholdMs
+        let hangThresholdMs = options.usableHangThresholdMs
         lastStep = Task { [weak self] in
             let root = MailboxLocation.root(
                 applicationSupport: URL.applicationSupportDirectory,
@@ -195,7 +195,7 @@ final class Probe {
     /// Low priority, so the probe's background work does not compete with the app.
     /// Tasks started from the sampler (log reads, mailbox steps) get the same priority.
     private func startSampling() {
-        let interval = max(options.sampleInterval, 0.5)
+        let interval = options.usableSampleInterval
         sampler = Task(priority: .utility) { [weak self] in
             while !Task.isCancelled {
                 guard let self else { return }
@@ -254,7 +254,8 @@ final class Probe {
         record(.command(CommandEvent(id: command.id, name: command.name.rawValue, via: via)))
         switch command.name {
         case .mark:
-            mark(source: .command, name: command.args.name, command: command, via: via, ask: command.args.ask ?? false)
+            // An empty name counts as no name, so the mark is named after its source.
+            mark(source: .command, name: Describe.nonEmpty(command.args.name), command: command, via: via, ask: command.args.ask ?? false)
         case .snapshot:
             let capture = takeCapture(parts: command.args.parts ?? Snapshot.Part.allCases)
             enqueue { mailbox in

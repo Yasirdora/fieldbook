@@ -14,13 +14,17 @@ enum AccessibilityTreeCapture {
 
     static func capture(windows: [NSWindow], redaction: Redaction) -> AXTree {
         var budget = NodeBudget()
+        var reached = ReachedObjects()
         var trees: [WindowTree<AXNode>] = []
         for (index, window) in windows.enumerated() {
             let top: any NSAccessibilityProtocol = window
+            _ = reached.isNew(window)
             let root = TreeWalk.build(
                 top,
                 budget: &budget,
-                children: { children(of: $0) },
+                // A custom element can list any object as a child, even one the walk has
+                // already reached, so each object is walked only the first time.
+                children: { element in children(of: element).filter { reached.isNew($0) } },
                 make: { element, children in node(for: element, children: children, window: window, redaction: redaction) }
             )
             guard let root else { break }
@@ -67,10 +71,24 @@ enum AccessibilityTreeCapture {
             frame: windowFrame(element.accessibilityFrame(), window: window),
             id: Describe.nonEmpty(element.accessibilityIdentifier()),
             label: label.map { redaction.redact($0) },
-            value: AccessibilityText.value(element.accessibilityValue()).map { redaction.redact($0) },
+            value: value(of: element, redaction: redaction),
             traits: TraitNames.names(of: element),
             children: children
         )
+    }
+
+    /// The accessibility value. A password field gives none, as in the view tree.
+    private static func value(of element: any NSAccessibilityProtocol, redaction: Redaction) -> RedactedText? {
+        guard !isPassword(element) else { return nil }
+        return AccessibilityText.value(element.accessibilityValue()).map { redaction.redact($0) }
+    }
+
+    /// True for an element with the secure text field subrole, and for a password view
+    /// (see `PasswordViews`).
+    private static func isPassword(_ element: any NSAccessibilityProtocol) -> Bool {
+        if element.accessibilitySubrole() == .secureTextField { return true }
+        guard let view = element as? NSView else { return false }
+        return PasswordViews.contains(view)
     }
 
     /// `accessibilityFrame()` is in screen coordinates with the origin at the bottom left.
