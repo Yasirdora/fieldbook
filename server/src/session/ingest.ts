@@ -9,6 +9,7 @@
  */
 import fs from "node:fs";
 import path from "node:path";
+import { createHash } from "node:crypto";
 import { parseEvents, parseHello, parseOutboxItem, parseSnapshotInfo, type Hello, type MailboxEvent, type OutboxItem, type SnapshotInfo } from "../format.ts";
 import { readJson, readTextIfExists, slugify, writeJsonAtomic } from "../fsx.ts";
 import { captured, measured, missing, rendered, reported, type Labeled } from "../labels.ts";
@@ -63,6 +64,8 @@ export interface IngestState {
   copied: { snapshots: string[]; files: string[] };
   /** Outbox items ("runId:seq") holding back the ack, and for how many pulls. */
   ackWaits: { key: string; pulls: number }[];
+  /** Fingerprints of event lines already reported as skipped (each is reported once). */
+  skippedKeys: string[];
   skippedLines: number;
 }
 
@@ -110,6 +113,7 @@ export function newIngestState(): IngestState {
     pendingNotes: [],
     copied: { snapshots: [], files: [] },
     ackWaits: [],
+    skippedKeys: [],
     skippedLines: 0,
   };
 }
@@ -120,7 +124,7 @@ function statePath(sessionDir: string): string {
 
 export function loadIngestState(sessionDir: string): IngestState {
   const file = statePath(sessionDir);
-  return fs.existsSync(file) ? readJson<IngestState>(file) : newIngestState();
+  return fs.existsSync(file) ? { ...newIngestState(), ...readJson<IngestState>(file) } : newIngestState();
 }
 
 export function saveIngestState(sessionDir: string, state: IngestState): void {
@@ -195,14 +199,24 @@ class IngestRun {
     for (const name of ["events.1.jsonl", "events.jsonl"]) {
       const text = readRegularFile(path.join(this.root, name));
       if (text === undefined) continue;
-      const { events, skipped } = parseEvents(text);
-      this.state.skippedLines += skipped;
+      const { events, skippedLines } = parseEvents(text);
+      for (const skipped of skippedLines) this.reportSkipped(name, skipped.line, skipped.reason);
       for (const event of events) {
         if (!this.isNew(event)) continue;
-        if (Date.parse(event.time) >= this.startedMs - CLOCK_MARGIN_MS) fresh.push(event);
+        if (Date.parse(happenedAt(event)) >= this.startedMs - CLOCK_MARGIN_MS) fresh.push(event);
       }
     }
     return fresh;
+  }
+
+  /** Reports a line this server cannot read, once (the file is read again on every pull). */
+  private reportSkipped(file: string, line: string, reason: string): void {
+    const key = createHash("sha256").update(line).digest("hex").slice(0, 16);
+    if (this.state.skippedKeys.includes(key)) return;
+    this.state.skippedKeys.push(key);
+    if (this.state.skippedKeys.length > 1000) this.state.skippedKeys.splice(0, this.state.skippedKeys.length - 1000);
+    this.state.skippedLines++;
+    this.problem(`a line of ${file} was skipped: ${reason}`);
   }
 
   /** True the first time an event is seen. Sequence numbers skipped on the way are kept as gaps. */
@@ -265,7 +279,8 @@ class IngestRun {
     const mark = event.mark;
     if (this.state.marks.some((filed) => filed.id === mark.id)) return;
     const n = this.state.nextMark++;
-    const dir = `marks/${n}-${slugify(mark.name ?? mark.source)}`;
+    const name = mark.name || null;
+    const dir = `marks/${n}-${slugify(name ?? mark.source)}`;
     const commandId = this.isOwnCommand(mark.commandId) ? mark.commandId : null;
     this.state.marks.push({ id: mark.id, n, dir, commandId });
     const absolute = path.join(this.sessionDir, dir);
@@ -275,7 +290,7 @@ class IngestRun {
       n,
       id: mark.id,
       runId: event.runId,
-      name: mark.name ?? null,
+      name,
       source: mark.source,
       at: event.time,
       ms: Date.parse(event.time) - this.startedMs,
@@ -301,7 +316,7 @@ class IngestRun {
     for (const note of this.state.pendingNotes.filter((pending) => pending.markId === mark.id)) addNote(absolute, note.text);
     this.state.pendingNotes = this.state.pendingNotes.filter((pending) => pending.markId !== mark.id);
     this.marksFiled.push(n);
-    this.entries.push(this.entry(event, event.time, "measured", { n, id: mark.id, name: mark.name ?? null, source: mark.source, dir, commandId }));
+    this.entries.push(this.entry(event, event.time, "measured", { n, id: mark.id, name, source: mark.source, dir, commandId }));
   }
 
   /** True for an id this session's commands use: "<session id>-<seq>". */
@@ -433,8 +448,11 @@ class IngestRun {
    * the ack back for at most ACK_PATIENCE pulls, then it is let go with a problem entry.
    */
   private ackUpTo(): number {
+    const { items, unreadable } = readOutbox(this.root);
     let upTo = 0;
-    for (const item of readOutbox(this.root)) {
+    for (const item of items) {
+      // Never acknowledge past an item this server could not read: the app would delete it unseen.
+      if (unreadable !== undefined && item.seq >= unreadable) break;
       if (!this.ackable(item)) break;
       upTo = item.seq;
     }
@@ -462,24 +480,37 @@ class IngestRun {
 
 const OUTBOX_NAME = /^(\d{6,})-(result|mark|metrickit)\.json$/;
 
-/** The outbox items of the copy whose file name and seq agree, oldest first. */
-function readOutbox(root: string): OutboxItem[] {
+/**
+ * The outbox items of the copy whose file name and seq agree, oldest first, and the lowest seq
+ * of an item that looks like one but could not be read (for example a newer format).
+ */
+function readOutbox(root: string): { items: OutboxItem[]; unreadable?: number } {
   const outbox = path.join(root, "outbox");
-  if (!isRealFolder(outbox)) return [];
+  if (!isRealFolder(outbox)) return { items: [] };
   const items: OutboxItem[] = [];
+  let unreadable: number | undefined;
   for (const name of fs.readdirSync(outbox)) {
     const match = OUTBOX_NAME.exec(name);
     if (!match) continue;
+    const seq = Number(match[1]);
     const text = readRegularFile(path.join(outbox, name));
-    if (text === undefined) continue;
+    let item: OutboxItem | undefined;
     try {
-      const item = parseOutboxItem(text);
-      if (item.seq === Number(match[1])) items.push(item);
+      item = text === undefined ? undefined : parseOutboxItem(text);
     } catch {
-      // Not an outbox item this server can read; it is skipped (and not acknowledged past).
+      item = undefined;
     }
+    if (item && item.seq === seq) items.push(item);
+    else unreadable = Math.min(unreadable ?? seq, seq);
   }
-  return items.sort((a, b) => a.seq - b.seq);
+  return { items: items.sort((a, b) => a.seq - b.seq), unreadable };
+}
+
+/** When an event happened: a log line when it was logged, a hang when it started, anything else when it was written. */
+function happenedAt(event: MailboxEvent): string {
+  if (event.kind === "log") return event.log.logTime;
+  if (event.kind === "hang") return event.hang.start;
+  return event.time;
 }
 
 function isRegularFile(file: string): boolean {

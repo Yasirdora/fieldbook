@@ -32,7 +32,7 @@
             "traits": [
               "staticText"
             ],
-            "type": "SwiftUI.AccessibilityNode"
+            "type": "AccessibilityNode"
           },
           {
             "children": [],
@@ -51,7 +51,7 @@
             "traits": [
               "staticText"
             ],
-            "type": "SwiftUI.AccessibilityNode"
+            "type": "AccessibilityNode"
           }
         ],
         "frame": {

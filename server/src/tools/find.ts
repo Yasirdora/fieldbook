@@ -109,8 +109,10 @@ function loadElements(markDir: string): { elements: Element[]; readable: boolean
   return { elements, readable: tree !== undefined || ax !== undefined };
 }
 
+/** Types match on their last dotted part, so "SwiftUI.AccessibilityNode" and "AccessibilityNode" are the same. */
 function typeMatches(type: string, wanted: string): boolean {
-  return type === wanted || type.split(".").pop() === wanted;
+  const last = (name: string) => name.split(".").pop() ?? name;
+  return type === wanted || last(type) === last(wanted);
 }
 
 function hashMatches(text: RedactedText | null, hash: string): boolean {

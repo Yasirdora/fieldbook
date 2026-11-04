@@ -158,6 +158,7 @@ async function startRecording(
     `Pulling the mailbox every ${current.pullSeconds} s. First pull: ${
       firstPull.ok ? `${plural(firstPull.entries, "new timeline entry", "new timeline entries")}.` : `nothing yet — ${firstPull.problem}`
     }`,
+    ...textModeLine(current, input),
     `Build: ${input.build ?? "not given"}. Change: ${input.change ?? "not given"}.`,
   ];
   return { summary: lines.join("\n"), data: { started: true, session: { id, dir: store.dir(id) }, device: { target: device.target, id: device.id, name: device.name }, firstPull } };
@@ -165,6 +166,18 @@ async function startRecording(
 
 /** How long a relaunch may take to fail before Fieldbook calls it started. */
 const RELAUNCH_SETTLE_MS = 2_000;
+
+/** When full text was asked for, what the app itself reports (it may set hashed text in code). */
+function textModeLine(session: SessionFile, input: SessionStartInput): string[] {
+  if (!input.fullText) return [];
+  const hello = session.hello;
+  if (!hello || Date.parse(hello.processStart) < Date.parse(session.startedAt) - 2_000) {
+    return ["The app has not reported its text mode yet; the timeline header shows it once it does."];
+  }
+  return hello.redaction === "full"
+    ? ["The app reports full text (reported by the app)."]
+    : ["But the app reports hashed text: it sets the redaction in code, so view text is NOT stored in full."];
+}
 
 async function relaunch(ctx: Context, recorder: Recorder, input: SessionStartInput): Promise<string> {
   const args = input.fullText ? (LAUNCH_ARGUMENT_SETS[1] as readonly string[]) : [];
@@ -180,7 +193,7 @@ async function relaunch(ctx: Context, recorder: Recorder, input: SessionStartInp
   if (failed && !failed.aborted && failed.code !== 0) return `The app was NOT relaunched: ${failureText(failed)}`;
   const session = recorder.current;
   session.relaunched = true;
-  const text = input.fullText ? " View text is stored in full (-FieldbookText full)." : "";
+  const text = input.fullText ? " It was asked to store view text in full (-FieldbookText full)." : "";
   return `The app was relaunched (${launch.command} … --terminate-existing); its printed output goes to console.log.${text}`;
 }
 

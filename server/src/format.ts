@@ -184,35 +184,45 @@ const PAYLOAD_RULES: Record<EventKind, (payload: Fields) => boolean> = {
   problem: (p) => isText(p.where) && isText(p.message),
 };
 
-function asEvent(value: unknown): MailboxEvent | undefined {
-  if (typeof value !== "object" || value === null || Array.isArray(value)) return undefined;
+/** The event, or why the line is not one this server can read. */
+function checkEvent(value: unknown): { event: MailboxEvent } | { reason: string } {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return { reason: "it is not a JSON object" };
   const event = value as Fields;
-  if (event.formatVersion !== FORMAT_VERSION) return undefined;
-  if (!isText(event.runId) || !Number.isSafeInteger(event.seq) || (event.seq as number) < 1 || !isTime(event.time)) return undefined;
+  if (typeof event.formatVersion === "number" && event.formatVersion > FORMAT_VERSION) {
+    return { reason: `the app writes format version ${event.formatVersion}; this server reads version ${FORMAT_VERSION}. Update the server` };
+  }
+  if (event.formatVersion !== FORMAT_VERSION) return { reason: "it has no valid formatVersion" };
   const kind = event.kind;
-  if (typeof kind !== "string" || !(EVENT_KINDS as readonly string[]).includes(kind)) return undefined;
+  if (typeof kind !== "string" || !(EVENT_KINDS as readonly string[]).includes(kind)) return { reason: `its kind ${String(kind)} is unknown` };
   const payload = event[kind];
-  if (typeof payload !== "object" || payload === null || Array.isArray(payload)) return undefined;
-  return PAYLOAD_RULES[kind as EventKind](payload as Fields) ? (value as MailboxEvent) : undefined;
+  const envelopeOk = isText(event.runId) && Number.isSafeInteger(event.seq) && (event.seq as number) >= 1 && isTime(event.time);
+  const payloadOk = typeof payload === "object" && payload !== null && !Array.isArray(payload) && PAYLOAD_RULES[kind as EventKind](payload as Fields);
+  return envelopeOk && payloadOk ? { event: value as MailboxEvent } : { reason: `its ${kind} fields do not match the format` };
 }
 
-/** Reads events.jsonl text. Lines that are broken, of a newer format or of an unknown kind are counted, not thrown. */
-export function parseEvents(text: string): { events: MailboxEvent[]; skipped: number } {
+/** A line of events.jsonl that was not read, and why. */
+export interface SkippedLine {
+  line: string;
+  reason: string;
+}
+
+/** Reads events.jsonl text. Lines that are broken, of a newer format or of an unknown kind are returned as skipped, not thrown. */
+export function parseEvents(text: string): { events: MailboxEvent[]; skipped: number; skippedLines: SkippedLine[] } {
   const events: MailboxEvent[] = [];
-  let skipped = 0;
+  const skippedLines: SkippedLine[] = [];
   for (const line of completeLines(text)) {
     let value: unknown;
     try {
       value = JSON.parse(line);
     } catch {
-      skipped++;
+      skippedLines.push({ line, reason: "it is not valid JSON" });
       continue;
     }
-    const event = asEvent(value);
-    if (event) events.push(event);
-    else skipped++;
+    const checked = checkEvent(value);
+    if ("event" in checked) events.push(checked.event);
+    else skippedLines.push({ line, reason: checked.reason });
   }
-  return { events, skipped };
+  return { events, skipped: skippedLines.length, skippedLines };
 }
 
 // ---------------------------------------------------------------------------

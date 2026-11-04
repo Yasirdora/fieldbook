@@ -65,6 +65,14 @@ An adversarial review (3 finders, 3 skeptics) read the server. These rows record
 | 31 | `node --test test/hostile-mailbox.test.ts` | 8 | red: 7 pass, 1 fail | New test: a mark naming a snapshot that never arrives was waited for forever (raised by the kit fixer). |
 | 32 | `npm test` | 123 | green: 123 pass | Pending copies now give up after 30 pulls and say so; `tsc` clean. |
 
+## Second kit review (kit-server contract)
+
+| # | Command (in `server/`) | Tests | Result | Why it was red / note |
+|---|---|---|---|---|
+| 33 | `node --test test/contract.test.ts test/release-check.test.ts` | 16 | red: 8 pass, 8 fail | A snapshot the app could not store was reported as "did not answer"; a Mac screen-only snapshot had no window number; skipped event lines left no trace; logs were filtered by read time, not log time; an empty mark name was kept; the app's own text mode was never shown; type names did not match across module prefixes; a debug dylib next to the binary was not scanned. |
+| 34 | same, after the fixes | 16 | red: 15 pass, 1 fail | The test's own wording: it looked for "does not match", the message says "fields do not match". The test was corrected. |
+| 35 | `npm test` | 131 | green: 131 pass | `tsc` clean. |
+
 ## Swift (written, not run)
 
 Test files in

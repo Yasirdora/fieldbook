@@ -119,18 +119,28 @@ export interface SnapshotData {
 
 export async function snapshotTool(ctx: Context, input: { session: string; parts?: SnapshotPart[] }): Promise<ToolAnswer<SnapshotData>> {
   const recorder = await activeRecorder(ctx, input.session);
-  const appParts = input.parts?.filter((part): part is Exclude<SnapshotPart, "screen"> => part !== "screen");
   const wantScreen = !input.parts || input.parts.includes("screen");
+  const isMac = recorder.device.target === "mac";
+  let appParts = input.parts?.filter((part): part is Exclude<SnapshotPart, "screen"> => part !== "screen");
+  // On the Mac the capture needs the window number, which comes with the tree.
+  if (appParts && isMac && wantScreen && !appParts.includes("tree")) appParts = [...appParts, "tree"];
   const { command, sent } = await recorder.sendCommand("snapshot", appParts ? { parts: appParts } : {});
   if (sent.label === "missing") throw new ToolError(`The snapshot command could not be sent: ${sent.reason}`);
-  const isMac = recorder.device.target === "mac";
   let shot = wantScreen && !isMac ? await capture(ctx, recorder, command.id) : missing<string>(wantScreen ? "taken after the app's snapshot" : "not asked for");
-  const snapshotId = await waitFor(ctx, recorder, () => {
+  const answer = await waitFor(ctx, recorder, (): { id: string } | { failed: string } | undefined => {
     const root = findMailboxRoot(path.join(recorder.dir, "raw", "pull"));
     const item = root ? findOutboxItem(root, command.id) : undefined;
+    if (item && item.ok === false) return { failed: item.message ?? "the app could not store the snapshot" };
     const id = item?.snapshotId;
-    return isSafeName(id) && fs.existsSync(path.join(recorder.dir, "snapshots", id, "snapshot.json")) ? id : undefined;
+    return isSafeName(id) && fs.existsSync(path.join(recorder.dir, "snapshots", id, "snapshot.json")) ? { id } : undefined;
   });
+  if (answer && "failed" in answer) {
+    return {
+      summary: `The app answered but could not store the snapshot: ${answer.failed} The timeline has the app's problem entry.`,
+      data: { snapshotId: null, dir: null, commandId: command.id, capture: shot },
+    };
+  }
+  const snapshotId = answer?.id;
   if (!snapshotId) {
     return {
       summary: `The app did not answer within ${ANSWER_TRIES} s; no snapshot was filed. Is the app in the foreground?`,

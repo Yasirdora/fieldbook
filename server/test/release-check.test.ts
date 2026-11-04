@@ -111,3 +111,12 @@ test("wrong input exits with 2", () => {
   assert.equal(check(noBinary).code, 2);
   assert.equal(spawnSync("bash", [SCRIPT]).status, 2);
 });
+
+test("Xcode's separate debug dylib next to the binary is scanned too", () => {
+  const app = iosApp(fakeBinary("Sparrowpad"), (folder) => {
+    fs.writeFileSync(path.join(folder, "Sparrowpad.debug.dylib"), fakeBinary("FieldbookKit.Probe"));
+  });
+  const { code, output } = check(app);
+  assert.equal(code, 1);
+  assert.match(output, /"Fieldbook" found in: Sparrowpad\.debug\.dylib/);
+});

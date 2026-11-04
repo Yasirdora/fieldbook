@@ -51,8 +51,9 @@ function header(session: SessionFile, entries: TimelineEntry[], ctx: Context): s
   const where = `${session.target} "${session.device.name}" (${[session.device.model.value, session.device.osVersion.value].filter(Boolean).join(", ")})`;
   const crashes = metrics.crashes.label === "missing" ? `crashes: ${metrics.crashes.reason}` : plural(metrics.crashes.value ?? 0, "crash", "crashes");
   const hangs = metrics.hangs.label === "missing" ? `hangs: ${metrics.hangs.reason}` : `${plural(metrics.hangs.value ?? 0, "hang")} of ${ctx.config.rules.hangs.minMs} ms or more`;
+  const text = session.hello ? `text ${session.hello.redaction} (reported by the app)` : "text mode not reported yet";
   return [
-    `Session ${session.id} "${session.label}" — ${where}, ${app}. Status: ${session.status}.`,
+    `Session ${session.id} "${session.label}" — ${where}, ${app}, ${text}. Status: ${session.status}.`,
     `Started ${session.startedAt.slice(11, 19)} UTC. ${plural(metrics.marks, "mark")}, ${hangs}, ${crashes}, peak memory ${describe(metrics.peakMemoryBytes, formatBytes)}.`,
   ];
 }

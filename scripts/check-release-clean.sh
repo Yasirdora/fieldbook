@@ -2,7 +2,8 @@
 # check-release-clean.sh <path to .app>
 #
 # Fails when a Release build still contains any part of Fieldbook:
-#   1. the word "Fieldbook" in the binary's strings (the app binary and its frameworks and plug-ins);
+#   1. the word "Fieldbook" in the binary's strings (the app binary, a debug dylib next to it,
+#      and its frameworks and plug-ins);
 #   2. the "fieldbook." notification prefix;
 #   3. a FieldbookKit or FieldbookCore framework or bundle;
 #   4. on macOS only: Fieldbook symbols in nm output (nm reads Mach-O files only on a Mac).
@@ -64,9 +65,11 @@ fail() {
   failures=$((failures + 1))
 }
 
-# The files whose strings are scanned: the binary, and every file in Frameworks/ and PlugIns/.
+# The files whose strings are scanned: the binary, any .dylib next to it (Xcode's separate
+# debug dylib), and every file in Frameworks/ and PlugIns/.
 scanned_files() {
   printf '%s\n' "$binary"
+  find "$binary_dir" -maxdepth 1 -type f -name '*.dylib' 2>/dev/null
   find "$contents/Frameworks" "$contents/PlugIns" -type f 2>/dev/null
 }
 

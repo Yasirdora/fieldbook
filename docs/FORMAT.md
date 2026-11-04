@@ -105,7 +105,9 @@ Written once at each app launch, replacing the old one.
 
 - `runId` is new at every launch. It tells two launches apart.
 - `commit` comes from the key `FieldbookCommit` in the app's Info.plist. It is `null` when the key is missing.
-- `redaction` is `"hashed"` or `"full"`.
+- `redaction` is `"hashed"` or `"full"`: the mode the kit really uses (an app can set it in code,
+  which wins over the launch argument).
+- `hangThresholdMs` is the threshold in use, between 1 ms and 1 hour.
 
 ### events.jsonl
 
@@ -197,7 +199,7 @@ no accessibility value):
 
 `number` in a window is the macOS window number (`NSWindow.windowNumber`). The Mac uses it to capture just that window. It is `null` on iOS.
 
-`ax.json`: what VoiceOver can reach, with the same window list. An accessibility node has `source`, `type`, `frame` (window points), optional `id`, `label`, `value`, `traits`, and `children`. `source` says where the node came from:
+`ax.json`: what VoiceOver can reach, with the same window list. Password fields give no `value` here either. An accessibility node has `source`, `type`, `frame` (window points), optional `id`, `label`, `value`, `traits`, and `children`. `source` says where the node came from:
 
 | source | meaning |
 |---|---|

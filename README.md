@@ -16,6 +16,8 @@ Each recording is filed under the build and the change that made it. Two recordi
 steps — before and after a change — can be compared with clear pass and fail rules. A small
 `evidence.json` lets a Code Director Change Report cite the result.
 
+**Platforms.** iOS 26+ and macOS 26+ (AppKit). Mac Catalyst is not supported.
+
 **What it is not.** Not a tool for other people's apps, and not a planning method. It observes your
 own Debug builds, from source, with the tester's consent. It never installs, uninstalls, erases or
 reboots anything, never changes device settings, and has no upload feature. See docs/SAFETY.md.

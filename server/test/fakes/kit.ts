@@ -14,6 +14,8 @@ export interface FakeKitOptions {
   runId?: string;
   executable?: string;
   platform?: "iOS" | "macOS";
+  /** When true, snapshot commands are answered with ok: false (the kit could not store the snapshot). */
+  failSnapshots?: boolean;
   /** Changes the copied tree.json and ax.json of every snapshot (to fake a UI change). */
   editTrees?: (tree: any, ax: any) => void;
 }
@@ -119,6 +121,10 @@ export class FakeKit {
         this.mark({ source: "command", name: command.args.name as string | undefined, commandId: command.id, via });
         break;
       case "snapshot": {
+        if (this.options.failSnapshots) {
+          this.outbox("result", { commandId: command.id, commandName: "snapshot", via, ok: false, message: "The snapshot could not be stored.", snapshotId: null });
+          break;
+        }
         const snapshotId = this.snapshot("command", undefined, command.id);
         this.outbox("result", { commandId: command.id, commandName: "snapshot", via, ok: true, snapshotId });
         break;

@@ -229,7 +229,8 @@ xcrun devicectl list devices
 PHONE=<the identifier of the iPhone 12 Pro>
 xcodebuild -project demo/Sparrowpad.xcodeproj -scheme Sparrowpad-iOS -configuration Debug \
   -destination "platform=iOS,id=<its UDID>" -derivedDataPath demo/DerivedData \
-  -allowProvisioningUpdates FIELDBOOK_COMMIT=$(git rev-parse --short HEAD) build 2>&1 | tail -20
+  -allowProvisioningUpdates DEVELOPMENT_TEAM=<your-team-id> \
+  FIELDBOOK_COMMIT=$(git rev-parse --short HEAD) build 2>&1 | tail -20
 ```
 
 Install it with Xcode (Product → Run) or with `xcrun devicectl device install app --device "$PHONE" demo/DerivedData/Build/Products/Debug-iphoneos/Sparrowpad.app`,
