@@ -11,6 +11,7 @@ import { evidenceTool } from "../src/tools/evidence.ts";
 import { snapshotTool } from "../src/tools/mark.ts";
 import { sessionStart, sessionStop } from "../src/tools/session.ts";
 import { BUNDLE, PHONE_ID, PNG } from "./fakes/world.ts";
+import { tempDir } from "./helpers.ts";
 import { kitOn, sessionDir, setup } from "./testContext.ts";
 
 async function recording() {
@@ -60,7 +61,11 @@ test("a folder or a link inside a snapshot is skipped, and recording goes on", a
   const markId = kit.shake();
   const snapshotDir = path.join(mailbox, "snapshots", fs.readdirSync(path.join(mailbox, "snapshots"))[0] as string);
   fs.mkdirSync(path.join(snapshotDir, "a-folder"));
-  fs.symlinkSync("/etc/hostname", path.join(snapshotDir, "secret.txt"));
+  // A link out of the mailbox to a file the session must never copy. The target is written here:
+  // /etc/hostname, used before, does not exist on macOS.
+  const secret = path.join(tempDir("secret"), "hostname");
+  fs.writeFileSync(secret, "not for the session\n");
+  fs.symlinkSync(secret, path.join(snapshotDir, "secret.txt"));
   kit.note(markId, "still recorded");
   await ctx.recorders.get(id)?.pullOnce();
   const files = fs.readdirSync(path.join(dir, "marks/1-shake"));

@@ -73,10 +73,35 @@ An adversarial review (3 finders, 3 skeptics) read the server. These rows record
 | 34 | same, after the fixes | 16 | red: 15 pass, 1 fail | The test's own wording: it looked for "does not match", the message says "fields do not match". The test was corrected. |
 | 35 | `npm test` | 131 | green: 131 pass | `tsc` clean. |
 
-## Swift (written, not run)
+## Swift (written, not run — compiled and run on the Mac since, see below)
 
 Test files in
 `kit/Tests/FieldbookCoreTests/`: `RedactionTests`, `FormatFixtureTests`, `MailboxTests`,
 `TreeWalkTests`, `JSONValueTests`, `KitSourceRulesTests`. Checks that did run here on the Swift code:
 the node scan `server/test/kit-rules.test.ts` (4 pass) and, by the kit writer, a tree-sitter Swift
 grammar parse of the 23 kit files (no syntax errors) — a grammar check, not a compile.
+
+## On the Mac, 4 November 2026
+
+macOS 27.0, Xcode 27.2, Swift 6.4.2, Node v26.3.1, at 4722ec1. Every run held the Mac's shared check
+lock. Logs are stored in `fieldbook-test/`.
+
+| # | Command | Tests | Result | Why it was red / note |
+|---|---|---|---|---|
+| 36 | `swift build --package-path kit` | — | green: 0 errors | The first compile of the Swift. No error and no change needed. |
+| 37 | `xcodebuild build` FieldbookKit, generic iOS Simulator | — | green: 0 errors | |
+| 38 | `swift test --package-path kit` | 37 | red: 36 pass, 1 fail | `theScanFindsBannedSamples`: Swift `Regex` uses Unicode word boundaries by default, where a full stop between letters does not end a word, so `\bURLSession\b` missed `URLSession.shared`. `sourcesContainNoBannedConstruct` would have let such a call into kit/Sources; the node scan (`kit-rules.test.ts`, plain `\b`) still caught it. |
+| 39 | `npm test` (in `server/`) | 131 | red: 126 pass, 5 fail | Four release-check tests: on a Mac, `strings` parses Mach-O and refuses the short fake binaries ("truncated or malformed object", exit 1); the script threw the error away and read it as "not found", so a Release check that cannot look passed. On Linux, GNU `strings` reads raw bytes. One hostile-mailbox test: its link pointed at `/etc/hostname`, which macOS does not have, and the fake device's `cpSync` stopped with EEXIST. |
+| 40 | `npm run typecheck` | — | green | |
+| 41 | the fixes: `check-release-clean.sh` reads raw bytes with `grep -a` (no parser), names a file it cannot read as a hit "(unreadable)", and fails when `nm` cannot read the binary; the clean-build test uses a fake `nm` on every system (it had passed on a Mac only because the real `nm`'s error was thrown away); the hostile test links to a file it writes itself; the kit scan uses `.wordBoundaryKind(.simple)`. Two new tests: a file that cannot be read fails; a binary `nm` cannot read fails. | | | |
+| 42 | `npm test` | 133 | green: 133 pass | `tsc` clean. |
+| 43 | `swift test --package-path kit` | 37 | green: 37 pass | |
+| 44 | `node --test test/release-check.test.ts` with the script from 4722ec1 | 11 | red: 5 pass, 6 fail | The red run for the fix: the four tests above and both new tests. |
+| 45 | deliberate break a: an unreadable file counts as not found | 11 | red: 10 pass, 1 fail | Only "a file that cannot be read fails, and is named". |
+| 46 | deliberate break b: an `nm` error passes | 11 | red: 10 pass, 1 fail | Only "on macOS, a binary nm cannot read fails instead of passing". |
+| 47 | deliberate break c: Unicode word boundaries again | 4 | red: 3 pass, 1 fail | Only `theScanFindsBannedSamples`. |
+| 48 | `node --test test/hostile-mailbox.test.ts`, alone | 8 | green: 8 pass | A second clean run of the changed test. |
+
+Measured on the way: `nm -a` on a fully stripped copy of a real binary exits 0, so failing on an `nm` error does not
+fail a stripped Release build. Still open from docs/TESTING-ON-MAC.md: the demo on a scratch simulator, the Mac app,
+and the phone.

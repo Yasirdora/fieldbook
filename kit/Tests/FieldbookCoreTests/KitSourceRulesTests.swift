@@ -36,9 +36,12 @@ struct KitSourceRulesTests {
         .appendingPathComponent("Sources")
 
     /// Every banned thing in `text`, as "pattern (why)".
+    /// Word boundaries are the simple kind (between a word character and anything else), as in the
+    /// server's JavaScript scan: by Unicode's default rules a full stop between letters does not end a
+    /// word, so `\bURLSession\b` would miss `URLSession.shared`.
     static func violations(in text: String) throws -> [String] {
         try rules.compactMap { rule in
-            let regex = try Regex(rule.pattern)
+            let regex = try Regex(rule.pattern).wordBoundaryKind(.simple)
             return text.contains(regex) ? "\(rule.pattern) (\(rule.why))" : nil
         }
     }

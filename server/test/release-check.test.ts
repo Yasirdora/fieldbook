@@ -47,6 +47,13 @@ function fakeNm(symbols: string[]): string {
   return bin;
 }
 
+/** A fake `nm` on PATH that cannot read the file, as the real one does with a damaged binary. */
+function brokenNm(): string {
+  const bin = tempDir("broken-nm");
+  fs.writeFileSync(path.join(bin, "nm"), `#!/bin/sh\necho "nm: error: truncated or malformed object" >&2\nexit 1\n`, { mode: 0o755 });
+  return bin;
+}
+
 function check(app: string, env: Record<string, string> = {}) {
   const result = spawnSync("bash", [SCRIPT, app], { encoding: "utf8", env: { ...process.env, ...env } });
   return { code: result.status, output: `${result.stdout}${result.stderr}` };
@@ -57,7 +64,9 @@ test("the script is valid bash", () => {
 });
 
 test("a clean Release build passes", () => {
-  const { code, output } = check(iosApp(fakeBinary("Sparrowpad", "Garden plan", "com.example.sparrowpad")));
+  // The fake binary is no real Mach-O, so a real nm cannot read it; a fake one stands in on every system.
+  const clean = { FIELDBOOK_PLATFORM: "Darwin", PATH: `${fakeNm(["0000000100003f50 T _main"])}:${process.env.PATH}` };
+  const { code, output } = check(iosApp(fakeBinary("Sparrowpad", "Garden plan", "com.example.sparrowpad")), clean);
   assert.equal(code, 0, output);
   assert.match(output, /Clean: no part of Fieldbook found/);
 });
@@ -95,6 +104,23 @@ test("on macOS, FieldbookKit symbols in nm output fail", () => {
   const clean = check(app, { FIELDBOOK_PLATFORM: "Darwin", PATH: `${fakeNm(["0000000100003f50 T _main"])}:${process.env.PATH}` });
   assert.equal(clean.code, 0, clean.output);
   assert.match(clean.output, /✓ no Fieldbook symbols in nm output/);
+});
+
+test("on macOS, a binary nm cannot read fails instead of passing", () => {
+  const { code, output } = check(macApp(fakeBinary("Sparrowpad")), { FIELDBOOK_PLATFORM: "Darwin", PATH: `${brokenNm()}:${process.env.PATH}` });
+  assert.equal(code, 1, output);
+  assert.match(output, /✗ nm could not read Sparrowpad, so the symbols could not be checked/);
+});
+
+test("a file that cannot be read fails, and is named", { skip: process.getuid?.() === 0 ? "root reads any file" : false }, () => {
+  const app = iosApp(fakeBinary("Sparrowpad"), (folder) => {
+    const dylib = path.join(folder, "Sparrowpad.debug.dylib");
+    fs.writeFileSync(dylib, fakeBinary("Sparrowpad"));
+    fs.chmodSync(dylib, 0o000);
+  });
+  const { code, output } = check(app, { FIELDBOOK_PLATFORM: "Linux" });
+  assert.equal(code, 1, output);
+  assert.match(output, /✗ "Fieldbook" found in: Sparrowpad\.debug\.dylib \(unreadable\)/);
 });
 
 test("on Linux the nm check is skipped and says so", () => {

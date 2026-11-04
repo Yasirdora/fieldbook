@@ -2,11 +2,13 @@
 # check-release-clean.sh <path to .app>
 #
 # Fails when a Release build still contains any part of Fieldbook:
-#   1. the word "Fieldbook" in the binary's strings (the app binary, a debug dylib next to it,
+#   1. the word "Fieldbook" in the binary's bytes (the app binary, a debug dylib next to it,
 #      and its frameworks and plug-ins);
 #   2. the "fieldbook." notification prefix;
 #   3. a FieldbookKit or FieldbookCore framework or bundle;
 #   4. on macOS only: Fieldbook symbols in nm output (nm reads Mach-O files only on a Mac).
+#
+# A file the script cannot read fails its check: a gate that cannot look must not pass.
 #
 # Exit 0: clean. Exit 1: Fieldbook found. Exit 2: wrong input.
 # Written for the bash 3.2 that comes with macOS.
@@ -73,22 +75,21 @@ scanned_files() {
   find "$contents/Frameworks" "$contents/PlugIns" -type f 2>/dev/null
 }
 
-has_text() { # text file
-  if command -v strings >/dev/null 2>&1; then
-    strings -a "$2" 2>/dev/null | grep -q -- "$1"
-  else
-    LC_ALL=C grep -a -q -- "$1" "$2"
-  fi
-}
-
-# Prints the files (relative to the .app) whose strings contain the text, separated by ", ".
+# Prints the files (relative to the .app) whose bytes contain the text, separated by ", ".
+# grep reads the raw bytes: `strings` on a Mac parses Mach-O and refuses a file it cannot
+# parse, and a refusal must not read as "not found". A file grep cannot read is named too.
 files_with() { # text
   local found=""
   local file
+  local status
   while IFS= read -r file; do
     [ -n "$file" ] || continue
-    if has_text "$1" "$file"; then
+    LC_ALL=C grep -a -q -- "$1" "$file"
+    status=$?
+    if [ "$status" -eq 0 ]; then
       found="${found:+$found, }${file#"$app"/}"
+    elif [ "$status" -ne 1 ]; then
+      found="${found:+$found, }${file#"$app"/} (unreadable)"
     fi
   done <<EOF
 $(scanned_files)
@@ -112,7 +113,9 @@ if [ -z "$bundles" ]; then pass "no FieldbookKit or FieldbookCore framework or b
 if [ "$platform" = "Darwin" ]; then
   if ! command -v nm >/dev/null 2>&1; then
     fail "nm is not installed, so the symbols could not be checked"
-  elif nm -a "$binary" 2>/dev/null | grep -E -q 'FieldbookKit|FieldbookCore'; then
+  elif ! symbols="$(nm -a "$binary" 2>/dev/null)"; then
+    fail "nm could not read $(basename "$binary"), so the symbols could not be checked"
+  elif printf '%s\n' "$symbols" | grep -E -q 'FieldbookKit|FieldbookCore'; then
     fail "Fieldbook symbols in nm output of $(basename "$binary")"
   else
     pass "no Fieldbook symbols in nm output"
