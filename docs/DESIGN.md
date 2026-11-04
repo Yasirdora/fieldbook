@@ -60,7 +60,7 @@ Every claim below carries one tag:
 3. **The MCP server API.** `McpServer.registerTool(name, {title, description, inputSchema}, handler)`
    with zod shapes, and `StdioServerTransport`. [read: `server/node_modules/@modelcontextprotocol/sdk/README.md`
    and `dist/esm/server/mcp.d.ts` of version 1.32.2] Tested end to end with the SDK's
-   `InMemoryTransport` and by starting `node src/main.ts` over stdio. [measured: `npm test` → 122 pass]
+   `InMemoryTransport` and by starting `node src/main.ts` over stdio. [measured: `npm test` → 131 pass]
 4. **Each answer is a summary, then JSON.** Two text blocks. A mistake the caller can fix (unknown
    session, refused command) is an MCP error with a plain sentence. (`server/src/mcp.ts`)
 5. **Evidence labels on every value:** measured, captured, rendered, reported, missing — never
@@ -170,7 +170,7 @@ Every claim below carries one tag:
 
 ## 3. What was measured here, and what was not
 
-Measured here (Linux): everything in `server/` (122 tests, `tsc` clean), the release-check script's logic
+Measured here (Linux): everything in `server/` (131 tests, `tsc` clean), the release-check script's logic
 on fake `.app` folders, and the SHA-256 logic (through a JavaScript port).
 
 **Not measured here, and why:**
