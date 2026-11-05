@@ -44,7 +44,7 @@ Written by the `evidence` tool, for one session (`sessions/<id>/evidence.json`) 
       "app": { "bundleId": "com.example.sparrowpad", "version": {…}, "build": {…}, "commit": { "label": "reported", "value": "a1b2c3d" } },
       "build": "a1b2c3d", "change": "IL-0210", "status": "stopped",
       "startedAt": "…", "endedAt": "…",
-      "metrics": { "crashes": {…}, "launchMedianMs": {…}, "peakMemoryBytes": {…}, "hangs": {…}, "errorMessages": {…}, "marks": 2 }
+      "metrics": { "crashes": {…}, "launchMedianMs": {…}, "peakMemoryBytes": {…}, "hangs": {…}, "errorMessages": {…}, "systemErrorMessages": {…}, "marks": 2 }
     },
     { "role": "b", "…": "…" }
   ],

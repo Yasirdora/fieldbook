@@ -57,6 +57,8 @@ The mailbox is a folder in the app's own data container:
 | Sandboxed macOS app | `~/Library/Containers/<bundle id>/Data/Library/Application Support/Fieldbook/` |
 | macOS app without sandbox | `~/Library/Application Support/Fieldbook/mailbox/<bundle id>/` |
 
+When both Mac folders exist (macOS keeps the container after a build drops the sandbox), the server reads the one whose `hello.json` is newer.
+
 The folder is marked "do not back up" (`isExcludedFromBackup`).
 
 ```
@@ -352,7 +354,8 @@ One line per thing that happened, oldest first:
 {"at":"2026-11-04T10:15:12.400Z","ms":12400,"kind":"mark","label":"measured","runId":"5C1E…","seq":14,"mark":{"n":3,"name":"pin on the wrong page","dir":"marks/3-pin-on-the-wrong-page","captured":true,"nodes":412}}
 ```
 
-- `ms` is the time since the session started. The session start comes from the Mac clock; the event time from the device clock. The two clocks can differ a little.
+- `ms` is the time since the session started. The session start comes from the Mac clock; the event time from the device clock. The two clocks can differ a little; which events belong to the session does not depend on that (docs/DESIGN.md, item 11).
+- A last line without its newline was cut off while it was written; readers leave it out. Any other line that cannot be read is left out with one `problem` entry.
 - `kind` is one of the event kinds above, plus `crash` (a crash log was picked up) and `console` (not used for every line; `console.log` holds the app's printed output).
 
 ### marks/&lt;n&gt;-&lt;slug&gt;/
@@ -381,6 +384,8 @@ See `docs/CODE-DIRECTOR-LINK.md`. It is written by the `evidence` tool, next to 
   "files": [ { "path": "sessions/<id>/session.json", "sha256": "…", "bytes": 1234 } ]
 }
 ```
+
+The `newErrors` rule judges only the app's own messages; its `system` field lists new messages from Apple's frameworks (`com.apple.*`), not judged. A session's `metrics` keep both lists: `errorMessages` (the app) and `systemErrorMessages`.
 
 File paths in `files` are relative to `FIELDBOOK_HOME`.
 

@@ -59,7 +59,7 @@ Every claim below carries one tag:
 3. **The MCP server API.** `McpServer.registerTool(name, {title, description, inputSchema}, handler)`
    with zod shapes, and `StdioServerTransport`. [read: `server/node_modules/@modelcontextprotocol/sdk/README.md`
    and `dist/esm/server/mcp.d.ts` of version 1.32.2] Tested end to end with the SDK's
-   `InMemoryTransport` and by starting `node src/main.ts` over stdio. [measured: `npm test` → 144 pass]
+   `InMemoryTransport` and by starting `node src/main.ts` over stdio. [measured: `npm test` → 154 pass]
 4. **Each answer is a summary, then JSON.** Two text blocks. A mistake the caller can fix (unknown
    session, refused command) is an MCP error with a plain sentence. (`server/src/mcp.ts`)
 5. **Evidence labels on every value:** measured, captured, rendered, reported, missing — never
@@ -81,10 +81,18 @@ Every claim below carries one tag:
 10. **The mailbox copy is kept between pulls** (`raw/pull/`), so a copy that skips unchanged files
     costs little. `copy to` skips unchanged files [measured]; whether `copy from`
     does is unknown [guess G2]. The server finds the mailbox folder inside the copy whether devicectl
-    copies the folder itself or its contents [guess G2; both forms are tested].
+    copies the folder itself or its contents [guess G2; both forms are tested]. The search never
+    follows a link and skips an entry it cannot read. [measured: `hostile-mailbox.test.ts`]
 11. **Ingest is idempotent.** It remembers, per run, the highest event `seq` and any gaps below it (so events copied across a log rotation are not lost), and the marks it filed
-    (`raw/ingest.json`), so a second pull files nothing twice. Events older than the session start
-    (minus 2 s for clock difference) are left out. [measured: `session.test.ts`]
+    (`raw/ingest.json`), so a second pull files nothing twice. What happened before the session is
+    left out, without letting the two clocks decide what came after: only what the mailbox already
+    held when the session began is compared with the Mac's start time (minus 2 s). Later events
+    count by their sequence number, and a log the kit read late is compared with the run's newest
+    earlier event, on the device's own clock. Before a relaunch the server notes the mailbox, so the
+    new run counts in full. [measured: `session.test.ts`, `contract.test.ts`, `clock-skew.test.ts`
+    with the phone's clock 5 s behind] A timeline line cut off when the server stopped mid-write is
+    left out, later lines start on their own line, and a stop that failed can be tried again.
+    [measured: `recording-robustness.test.ts`]
 12. **Marks come from mark events; the outbox only drives the ack.** The mark event is written in
     the same step as the snapshot, while the outbox can drop items when full. Late snapshot files and
     late MetricKit files are retried on the next pull.
@@ -100,8 +108,10 @@ Every claim below carries one tag:
     the simulator location] A crash count that could not be measured is *missing*, never 0.
 15. **compare never gives one score.** Each rule shows both numbers and pass, warn, fail — or
     *unchecked* when a number is missing. Unchecked is an addition to the brief's three words: a rule
-    that cannot be judged must not pass. New error messages (numbers stripped) are warnings, never
-    failures.
+    that cannot be judged must not pass. New error messages from the app (numbers stripped) are
+    warnings, never failures. New messages from Apple's frameworks (`com.apple.*`) are listed, not
+    judged: an unchanged app logged 236 such lines in 17 minutes on the phone. [measured:
+    `compare.test.ts`]
 16. **evidence.json is self-contained** (the numbers, labels, thresholds and verdicts are inside it)
     and **verifiable** (every cited file with its sha256). It carries the device model and OS but no
     device name or id.
@@ -237,5 +247,10 @@ Found on the phone or in review; each is open, not hidden.
   in the app, and its tree walks run on the main thread.
 - **A comparison trusts its inputs.** `compare` assumes both sessions ran the same steps on the
   same kind of device. It shows both numbers for every rule but does not check that.
+- **The first copy is still judged by the clocks.** What the first copy finds (on the phone the copy
+  takes about 1 s) is compared with the Mac's start time, so with a phone clock several seconds
+  behind, an event from that second can be left out. A log the kit read late is compared with the
+  run's newest event before the start; after the app was suspended that event can be old, so a few
+  late logs from before the start may show.
 - **Colours are compared as stored.** `scripts/pixel-diff.ts` does no colour management; a Display P3
   capture and an sRGB rendering differ a little in saturated colours.

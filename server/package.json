@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "description": "Fieldbook MCP server: records debug builds on a phone, a simulator or this Mac.",
   "private": true,
-  "license": "UNLICENSED",
+  "license": "MIT",
   "type": "module",
   "bin": {
     "fieldbook-mcp": "src/main.ts"

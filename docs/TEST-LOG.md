@@ -147,3 +147,20 @@ the phone. It found eight problems (F12–F19); F12–F18 are fixed below, F19 i
 | 69 | demo Debug builds (iOS Simulator, macOS); the demo on a scratch simulator | — | green | F14: one tap on Freeze → "Freezes 1"; one tap on Log an error → "Errors logged 1". |
 | 70 | `timeline` on the recorded phone session, with the new code | — | green | 265 lines (154 KB) → 102 lines (48 KB); 212 repeats folded into their first line; marks 1–4 read "accessibility tree empty", the VoiceOver mark "33 nodes"; all 13 of the app's own lines kept. |
 | 71 | `scripts/pixel-diff.ts` on the 16-bit capture, with the new script | — | green, one finding | It reads now. F19: 93.5 % differ, because the app's snapshot and the capture were 1.1 s apart and show different scroll positions. Open. |
+
+## Review fixes, 5 November 2026
+
+A read-only outside review of the code found five bugs; each was confirmed with a failing test
+before it was fixed.
+
+| # | Command | Tests | Result | Why it was red / note |
+|---|---|---|---|---|
+| 72 | `clock-skew.test.ts` with the old ingest | 4 | red: 0 pass, 4 fail | With the phone's clock 5 s behind the Mac: a hang and a mark after the start were left out and the mark's snapshot was acknowledged without being copied; after a relaunch the new run's launch was left out; a log from just after the start was left out. |
+| 73 | `npm test` with the first fix | 147 | red: 146 pass, 1 fail | The first fix judged every event after the start only by its sequence number, so a log from long before the session that the kit read late counted. Now such a log is compared with the run's newest earlier event, on the phone's own clock. |
+| 74 | `clock-skew.test.ts`, a fourth test (a log read late), with the fix | 4 | red: 3 pass, 1 fail | Honest note: the test itself was wrong. Its fake kit wrote nothing for 60 s before the start; the real kit writes a memory sample every 2 s. With that sample it is green. |
+| 75 | `clock-skew.test.ts` with the fix | 4 | green: 4 pass | |
+| 76 | the mailbox-search and stop tests with the old code | 2 | red: 0 pass, 2 fail | A broken link in the copy threw ENOENT from `stat`. A stop that failed once (the session folder could not be written) gave back the same error on every later stop. |
+| 77 | the cut-off timeline tests with the old code | 2 | red: 0 pass, 2 fail | `SyntaxError` on a last line cut off mid-write; the next pull's line was glued onto it. |
+| 78 | the Mac mailbox test with the old code | 1 | red: 0 pass, 1 fail | An old sandbox container won over the newer mailbox of a build without sandbox. |
+| 79 | the system-message compare test with the old code | 1 | red: 0 pass, 1 fail | A new UIKit message made `newErrors` warn. |
+| 80 | each set with its fix; `npm test`, `npm run typecheck` | 154 | green: 154 pass | `tsc` clean. |

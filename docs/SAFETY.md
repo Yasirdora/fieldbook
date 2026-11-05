@@ -22,8 +22,8 @@ enforces it, so a reviewer can check it rather than trust it.
 
 | Rule | How it is enforced |
 |---|---|
-| Everything copied out of the app's mailbox is treated as untrusted. | `server/src/session/ingest.ts`: ids become paths only when they are safe names (`isSafeName`: letters, digits, `.`, `_`, `-`; no `/`, no leading `.`); only regular files are copied (`lstat`), never folders or links; event payloads are checked field by field (`server/src/format.ts`); a mark's command id is trusted only in this session's form. Tests: `hostile-mailbox.test.ts` (7), `recording-robustness.test.ts`. |
-| The app never loses data it was not asked to delete. | The ack covers only outbox items whose files are safely in the session. Test: `session.test.ts`, `hostile-mailbox.test.ts`. |
+| Everything copied out of the app's mailbox is treated as untrusted. | `server/src/session/ingest.ts`: ids become paths only when they are safe names (`isSafeName`: letters, digits, `.`, `_`, `-`; no `/`, no leading `.`); only regular files are copied (`lstat`), never folders or links, and the search for the mailbox in the copy never follows a link; event payloads are checked field by field (`server/src/format.ts`); a mark's command id is trusted only in this session's form. Tests: `hostile-mailbox.test.ts` (8), `recording-robustness.test.ts`. |
+| The app never loses data it was not asked to delete. | The ack covers only outbox items whose files are safely in the session, whatever the two clocks say. One exception, by design: items that were already in the mailbox when the session began and are from before its start are not part of the session; they are acknowledged without being copied, so the app deletes them. Test: `session.test.ts`, `hostile-mailbox.test.ts`, `clock-skew.test.ts`. |
 
 ## How commands run
 
