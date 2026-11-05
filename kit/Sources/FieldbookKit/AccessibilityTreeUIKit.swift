@@ -104,12 +104,25 @@ enum AccessibilityTreeCapture {
             source: item.source,
             type: Describe.typeName(of: object),
             frame: windowFrame(object.accessibilityFrame, window: window, screenSpace: screenSpace),
-            id: Describe.nonEmpty((object as? UIAccessibilityIdentification)?.accessibilityIdentifier),
+            id: Describe.nonEmpty(identifier(of: object)),
             label: Describe.nonEmpty(object.accessibilityLabel).map { redaction.redact($0) },
             value: value(of: object, redaction: redaction),
             traits: TraitNames.names(of: object.accessibilityTraits),
             children: children
         )
+    }
+
+    /// The element's accessibilityIdentifier. UIKit views declare it through
+    /// UIAccessibilityIdentification; SwiftUI's elements answer the getter without declaring
+    /// the protocol (measured on iOS 26.5), so any element that responds to it is asked.
+    private static func identifier(of object: NSObject) -> String? {
+        if let identified = object as? UIAccessibilityIdentification {
+            return identified.accessibilityIdentifier
+        }
+        guard object.responds(to: #selector(getter: UIAccessibilityIdentification.accessibilityIdentifier)) else {
+            return nil
+        }
+        return object.value(forKey: "accessibilityIdentifier") as? String
     }
 
     /// The accessibility value. A password field gives none: its value is one bullet per
