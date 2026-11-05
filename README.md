@@ -86,9 +86,9 @@ Sessions are stored in `$FIELDBOOK_HOME/sessions/<id>/` (default `~/Library/Appl
 |---|---|
 | `devices` | Phones, simulators and this Mac: reachable, locked, app installed with container access. |
 | `doctor` | What works right now; each item measured or missing. |
-| `session_start` / `session_stop` | Record a session; relaunch only when asked; crash logs at the end. |
+| `session_start` / `session_stop` | Record a session; relaunch only when asked; crash logs at the end, waiting for a late report after a fatal error. |
 | `mark` / `snapshot` | A moment with a real screenshot and the app's snapshot. |
-| `timeline` | Short text: `00:12.4 mark 3 "pin on the wrong page" (screen captured, tree 412 nodes)`. |
+| `timeline` | Short text: `00:12.4 mark 3 "pin on the wrong page" (screen captured, tree 412 nodes)`. System log lines below error level are left out unless asked for. |
 | `find` | Elements by id, label, type, text or text hash; "is A inside B"; distance in points. |
 | `compare` | Two sessions; each rule shows both numbers and pass, warn, fail or unchecked. |
 | `evidence` | Writes `evidence.json` for Code Director. |

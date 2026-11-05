@@ -105,3 +105,22 @@ lock. Logs are stored in `fieldbook-test/`.
 Measured on the way: `nm -a` on a fully stripped copy of a real binary exits 0, so failing on an `nm` error does not
 fail a stripped Release build. Still open from docs/TESTING-ON-MAC.md: the demo on a scratch simulator, the Mac app,
 and the phone.
+
+## Simulator findings fixed, 5 November 2026
+
+The first demo run on a simulator (4 November) found that a late crash report was missed, that SwiftUI
+screens had an empty accessibility tree reported as measured, that doctor counted simulators as phones,
+that SwiftUI identifiers were never found, and that system log lines filled the timeline.
+
+| # | Command | Tests | Result | Why it was red / note |
+|---|---|---|---|---|
+| 49 | the new tests on bb971cb (code unchanged, tests copied in): `parsers`, `timeline`, `recording-robustness` | 18 | red: 13 pass, 5 fail | Simulators listed by devicectl counted as phones; `session_stop` neither waited for a late report nor said when it looked (3 tests); `timeline.test.ts` did not load: `accessibilityText` did not exist yet. |
+| 50 | the timeline tests with the new `text.ts` and the old `timeline.ts` | 2 | red: 1 pass, 1 fail | Only the system-log test: "Scene will enter foreground" was in the default timeline. |
+| 51 | `npm run typecheck` | — | green | |
+| 52 | `npm test` | 139 | green: 139 pass | |
+| 53 | `swift test --package-path kit` | 37 | green: 37 pass | |
+| 54 | `xcodebuild build` FieldbookKit, generic iOS Simulator | — | green: 0 errors | |
+| 55 | demo on a scratch simulator (iPhone 17 Pro, iOS 26.5), app accessibility on: doctor; a session with relaunch; marks "list" and "detail"; `find id:pinnedBadge`, `find id:noteRow-n3`; Crash, then `session_stop` at once | — | green, one finding | doctor listed 1 phone (before: 9 false failures). Marks had 32 and 14 accessibility nodes; both identifiers were found in the accessibility tree (before: none). The crash report was written 5.1 s after the crash; stop waited for it and counted "1 new crash log". The default timeline was 5.3 KB with 418 system log lines left out (268 KB with `kinds: ["log"]`). Finding: the report header's `timestamp` is when the report was written; the crash time is the body's `captureTime`. |
+| 56 | same, app accessibility off | — | green | The mark reads "accessibility tree empty (missing: …)" instead of "accessibility 1 nodes (measured)". A stop without a crash returns at once and says it looked when the session stopped. |
+| 57 | `npm test` after the crash time moved to `captureTime` | 140 | green: 140 pass | `tsc` clean. |
+

@@ -60,7 +60,7 @@ xcrun simctl list devices --json | head -5
 
 Then call the tool `doctor` with no arguments.
 
-**Look for:** `# pass` equal to `# tests` (131 or more); no output from `typecheck`. The `grep -c`
+**Look for:** `ℹ pass` equal to `ℹ tests` (140 or more; Node 26 prints these lines); no output from `typecheck`. The `grep -c`
 prints 1. `simctl list devices --json` prints JSON. In doctor: `✓ devicectl` and `✓ simctl`.
 **Pass:** all of the above. This settles **G12**.
 **Fallback for G12:** if `--terminate-running-process` does not exist, relaunch on a simulator fails
@@ -83,7 +83,8 @@ ls "$BOX"; cat "$BOX/hello.json"; tail -3 "$BOX/events.jsonl"
 ```
 
 **Look for:** the app shows five invented notes. The mailbox holds `hello.json`, `events.jsonl`,
-`kit-state.json`, `inbox/`, `outbox/`, `snapshots/`, `metrickit/`. `hello.json` has `"redaction": "hashed"`,
+`inbox/`, `outbox/`, `snapshots/`, `metrickit/`; `kit-state.json` appears once the app has read its
+first command (step 5). `hello.json` has `"redaction": "hashed"`,
 `"commit"` equal to `git rev-parse --short HEAD`, `"isSimulator": true`. The events include `lifecycle`
 `active` and one `launch` with a plausible `ms`.
 **Pass:** all of the above. (Keep `$UDID` for the next steps; `xcrun simctl delete "$UDID"` at the end.)
@@ -106,8 +107,11 @@ ls ~/Library/Logs/DiagnosticReports | grep -i sparrowpad
 ```
 
 **Look for in the timeline:** `launch … ms`; `hang` of about 400 ms; `log error [demo] Could not save
-the garden plan …`; `mark 1 "list" (screen captured, tree … nodes, accessibility … nodes)`; `mark 2
-"detail" …`; a `snapshot`; at the end a `crash log crashes/Sparrowpad-….ips`.
+the garden plan …`; `mark 1 "list" (screen captured, tree … nodes, accessibility tree empty (missing: …))`
+— SwiftUI builds no accessibility elements until an assistive technology is attached, see step 7; `mark 2
+"detail" …`; a `snapshot`; a `crash log crashes/Sparrowpad-….ips` at the time of the crash. A crash
+report can take 20 s or more to appear: when the console shows a fatal error, `session_stop` waits up to
+45 s for it.
 **Pass:** each of those lines is there; each mark folder has `tree.json`, `ax.json`, `state.json`,
 `screen-rendered.png`, `screen-captured.png`; `state.json` shows `"pinnedCount": 2` and `"keptMegabytes": 100`;
 `session_stop` says "1 new crash log". This settles **G10** (simulator crash reports land in
@@ -141,7 +145,19 @@ the right window (**G9**).
 
 ## 7. What the trees see in SwiftUI (G3)
 
-Use the simulator session from step 5:
+SwiftUI builds its accessibility elements only while an assistive technology is attached. Fieldbook
+never changes a device's settings, so the tester turns this on and off. On a simulator (measured):
+
+```bash
+xcrun simctl spawn "$UDID" defaults write com.apple.Accessibility ApplicationAccessibilityEnabled -bool true
+# … relaunch the app, record, then restore:
+xcrun simctl spawn "$UDID" defaults write com.apple.Accessibility ApplicationAccessibilityEnabled -bool false
+```
+
+On a phone, VoiceOver or Accessibility Inspector (Xcode › Open Developer Tool) attached to the app should do
+the same; step 14 measures it.
+
+Use a simulator session recorded that way:
 
 ```text
 find {"session": "<id>", "mark": "detail", "query": "id:pinnedBadge"}
@@ -285,7 +301,10 @@ phone**. The sheet "What did you see?" appears; type `badge looks right`, Save. 
 `note on mark …: "badge looks right"`; `mark … "detail" (screen captured …)` with a capture taken by
 `devicectl capture screenshot`. Then run steps 8 and 10 on this session, and the snapshot time:
 `jq .ms "$FIELDBOOK_HOME"/sessions/<id>/marks/*/snapshot.json`.
-**Pass:** no permission prompt (**G7**); both marks filed; snapshot time under 150 ms.
+Then attach Accessibility Inspector to the app (or turn on VoiceOver), take `mark {"name": "with inspector"}`,
+and run step 7's `find` on that mark.
+**Pass:** no permission prompt (**G7**); both marks filed; snapshot time under 150 ms; the accessibility
+count of each mark is recorded (empty without an assistive technology, elements with one).
 **Fallback for G7:** if a prompt appears, the user allows it once; ⌃⌥⌘M is the Mac's way, and the
 Mac's `mark` tool always works.
 
