@@ -3,7 +3,11 @@
  * whether a bundle id is installed with container access. Every value carries its label.
  */
 import assert from "node:assert/strict";
+import fs from "node:fs";
+import path from "node:path";
 import test from "node:test";
+import { MAILBOX_PATH } from "../src/allowlist.ts";
+import { MacDevice } from "../src/devices/mac.ts";
 import { devicesTool } from "../src/tools/devices.ts";
 import { BUNDLE, PAD_ID, PHONE_ID, SIM_ID, SPARE_SIM_ID } from "./fakes/world.ts";
 import { setup } from "./testContext.ts";
@@ -83,4 +87,27 @@ test("when devicectl is missing, phones are missing with the reason and the rest
   assert.ok(data.problems.some((p) => /devicectl/.test(p)));
   assert.equal(data.simulators.length, 2);
   assert.match(summary, /devicectl/);
+});
+
+test("on the Mac, the mailbox is the one the app wrote last, not a container an older sandboxed build left", () => {
+  const { ctx } = setup();
+  const bundleId = "com.example.switcher";
+  const container = path.join(ctx.macHome, "Library", "Containers", bundleId, "Data", MAILBOX_PATH);
+  const plain = path.join(ctx.macHome, MAILBOX_PATH, "mailbox", bundleId);
+  const hello = (dir: string, secondsAgo: number) => {
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(path.join(dir, "hello.json"), "{}");
+    const when = new Date(Date.now() - secondsAgo * 1000);
+    fs.utimesSync(path.join(dir, "hello.json"), when, when);
+  };
+  const mac = new MacDevice(ctx.runner, ctx.macHome, "Test Mac");
+
+  hello(container, 3_600);
+  assert.deepEqual(mac.mailboxDir(bundleId), { dir: container, sandboxed: true }, "only the sandboxed build has run");
+  // The app is now built without the sandbox; macOS keeps the old container.
+  hello(plain, 5);
+  assert.deepEqual(mac.mailboxDir(bundleId), { dir: plain, sandboxed: false });
+  // An empty container (a sandboxed build that has not written its mailbox) does not win either.
+  fs.rmSync(path.join(container, "hello.json"));
+  assert.deepEqual(mac.mailboxDir(bundleId), { dir: plain, sandboxed: false });
 });

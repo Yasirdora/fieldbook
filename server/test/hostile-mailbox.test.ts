@@ -7,6 +7,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
 import test from "node:test";
+import { findMailboxRoot } from "../src/devices/mailboxFolder.ts";
 import { evidenceTool } from "../src/tools/evidence.ts";
 import { snapshotTool } from "../src/tools/mark.ts";
 import { sessionStart, sessionStop } from "../src/tools/session.ts";
@@ -134,4 +135,16 @@ test("a mark whose snapshot never arrives stops being waited for, and says so", 
   const mark = JSON.parse(fs.readFileSync(path.join(dir, "marks/1-lost/mark.json"), "utf8"));
   assert.match(mark.parts.tree.reason, /never arrived/);
   assert.ok(timeline(dir).some((entry) => entry.kind === "problem" && /never arrived/.test(entry.problem.message)));
+});
+
+test("a broken link or a link out of the copy neither stops nor steers the search for the mailbox", () => {
+  const staging = tempDir("staging");
+  const outside = tempDir("outside");
+  fs.writeFileSync(path.join(outside, "hello.json"), "{}");
+  // Sorted by name, so the broken link is looked at first, then the link out of the copy.
+  fs.symlinkSync(path.join(staging, "nowhere"), path.join(staging, "a-broken"));
+  fs.symlinkSync(outside, path.join(staging, "b-elsewhere"));
+  fs.mkdirSync(path.join(staging, "c-mailbox"));
+  fs.writeFileSync(path.join(staging, "c-mailbox", "hello.json"), "{}");
+  assert.equal(findMailboxRoot(staging), path.join(staging, "c-mailbox"));
 });

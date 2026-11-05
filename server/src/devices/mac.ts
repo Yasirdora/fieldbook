@@ -41,12 +41,20 @@ export class MacDevice implements Device {
     };
   }
 
-  /** The sandboxed container's mailbox, or the mailbox of an app without sandbox (docs/FORMAT.md). */
+  /**
+   * The sandboxed container's mailbox, or the mailbox of an app without sandbox (docs/FORMAT.md).
+   * macOS keeps the container when a later build drops the sandbox, so a mailbox with a newer
+   * hello.json wins over the other one.
+   */
   mailboxDir(bundleId: string): { dir: string; sandboxed: boolean } | undefined {
     const container = path.join(this.macHome, "Library", "Containers", bundleId, "Data");
-    if (fs.existsSync(container)) return { dir: path.join(container, MAILBOX_PATH), sandboxed: true };
-    const plain = path.join(this.macHome, MAILBOX_PATH, "mailbox", bundleId);
-    if (fs.existsSync(plain)) return { dir: plain, sandboxed: false };
+    const sandboxed = { dir: path.join(container, MAILBOX_PATH), sandboxed: true };
+    const plain = { dir: path.join(this.macHome, MAILBOX_PATH, "mailbox", bundleId), sandboxed: false };
+    const sandboxedHello = helloTime(sandboxed.dir);
+    const plainHello = helloTime(plain.dir);
+    if (plainHello !== undefined && (sandboxedHello === undefined || plainHello > sandboxedHello)) return plain;
+    if (fs.existsSync(container)) return sandboxed;
+    if (fs.existsSync(plain.dir)) return plain;
     return undefined;
   }
 
@@ -114,5 +122,14 @@ export class MacDevice implements Device {
 
   async copyCrashLog(name: string, destinationDir: string): Promise<Labeled<string>> {
     return copyHostCrashLog(this.macHome, name, destinationDir);
+  }
+}
+
+/** When the app last wrote the mailbox's hello.json, or undefined when there is none. */
+function helloTime(mailboxDir: string): number | undefined {
+  try {
+    return fs.statSync(path.join(mailboxDir, "hello.json")).mtimeMs;
+  } catch {
+    return undefined;
   }
 }

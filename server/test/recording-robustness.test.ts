@@ -9,8 +9,10 @@ import path from "node:path";
 import test from "node:test";
 import { createContext } from "../src/context.ts";
 import { crashTime } from "../src/session/recorder.ts";
+import { evidenceTool } from "../src/tools/evidence.ts";
 import { markTool, snapshotTool } from "../src/tools/mark.ts";
 import { sessionStart, sessionStop } from "../src/tools/session.ts";
+import { timelineTool } from "../src/tools/timeline.ts";
 import { BUNDLE, MAC_BUNDLE, PHONE_ID, PNG } from "./fakes/world.ts";
 import { kitOn, sessionDir, setup } from "./testContext.ts";
 
@@ -74,6 +76,58 @@ test("calls that overlap a stop do not reopen the session, and a second stop doe
   const session = JSON.parse(fs.readFileSync(path.join(sessionDir(ctx, id), "session.json"), "utf8"));
   assert.equal(session.status, "stopped");
   assert.equal(timeline(sessionDir(ctx, id)).filter((entry) => entry.kind === "crash").length, 1);
+});
+
+test("a stop that fails can be tried again", { skip: process.getuid?.() === 0 ? "root writes into any folder" : false }, async () => {
+  const { ctx, world, clock } = setup();
+  kitOn(world, clock).launch();
+  const { data } = await sessionStart(ctx, START);
+  const dir = sessionDir(ctx, data.session!.id);
+  // The session folder cannot be written, as on a full or read-only disk.
+  fs.chmodSync(dir, 0o555);
+  try {
+    await assert.rejects(sessionStop(ctx, { session: data.session!.id }));
+  } finally {
+    fs.chmodSync(dir, 0o755);
+  }
+  const retry = await sessionStop(ctx, { session: data.session!.id });
+  assert.match(retry.summary, /^Stopped/);
+  assert.equal(JSON.parse(fs.readFileSync(path.join(dir, "session.json"), "utf8")).status, "stopped");
+});
+
+/** What the server leaves when it is stopped in the middle of writing a timeline line. */
+const CUT_OFF = '{"at":"2026-11-04T10:15:03.000Z","ms":3000,"kind":"lo';
+
+test("a last timeline line cut off while it was written is left out, so the session can still be read", async () => {
+  const { ctx, world, clock } = setup();
+  const kit = kitOn(world, clock).launch();
+  const { data } = await sessionStart(ctx, START);
+  const id = data.session!.id;
+  kit.log("info", "Loaded 3 notes");
+  await ctx.recorders.get(id)?.pullOnce();
+  fs.appendFileSync(path.join(sessionDir(ctx, id), "timeline.jsonl"), CUT_OFF);
+
+  const shown = await timelineTool(ctx, { session: id });
+  assert.match(shown.summary, /Loaded 3 notes/);
+  assert.doesNotMatch(shown.summary, /problem/);
+  assert.match((await sessionStop(ctx, { session: id })).summary, /^Stopped/);
+  await evidenceTool(ctx, { session: id });
+});
+
+test("lines written after a cut-off line start on their own line, and the cut-off line is reported once", async () => {
+  const { ctx, world, clock } = setup();
+  const kit = kitOn(world, clock).launch();
+  const { data } = await sessionStart(ctx, START);
+  const id = data.session!.id;
+  fs.appendFileSync(path.join(sessionDir(ctx, id), "timeline.jsonl"), CUT_OFF);
+  clock.advance(1_000);
+  kit.log("info", "Written after the restart");
+  await ctx.recorders.get(id)?.pullOnce();
+
+  const { summary } = await timelineTool(ctx, { session: id });
+  assert.match(summary, /Written after the restart/);
+  assert.equal(summary.split("\n").filter((line) => line.includes("problem in timeline.jsonl")).length, 1, summary);
+  assert.match(summary, /problem in timeline\.jsonl: 1 line could not be read and was left out/);
 });
 
 /** A crash report as the system writes it: a JSON header line, then the report as one JSON object. */

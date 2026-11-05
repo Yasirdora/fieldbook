@@ -8,7 +8,7 @@ import type { Target } from "../devices/types.ts";
 import type { Hello } from "../format.ts";
 import { appendLines, randomHex, readJson, slugify, writeJsonAtomic } from "../fsx.ts";
 import type { Label, Labeled } from "../labels.ts";
-import { ToolError } from "../tools/common.ts";
+import { plural, ToolError } from "../tools/common.ts";
 
 export interface SessionFile {
   formatVersion: 1;
@@ -105,14 +105,42 @@ export class SessionStore {
     appendLines(path.join(this.dir(id), "timeline.jsonl"), entries.map((entry) => JSON.stringify(entry)));
   }
 
+  /**
+   * The timeline, oldest first. Text after the last newline was cut off while it was written
+   * (the server stopped), so it is left out. Any other line that cannot be read is left out too,
+   * and one problem entry at the end says how many.
+   */
   readTimeline(id: string): TimelineEntry[] {
     const file = path.join(this.dir(id), "timeline.jsonl");
     if (!fs.existsSync(file)) return [];
-    return fs
-      .readFileSync(file, "utf8")
-      .split("\n")
-      .filter((line) => line.trim().length > 0)
-      .map((line) => JSON.parse(line) as TimelineEntry)
-      .sort((a, b) => a.ms - b.ms);
+    const lines = fs.readFileSync(file, "utf8").split("\n");
+    lines.pop();
+    const entries: TimelineEntry[] = [];
+    let unreadable = 0;
+    for (const line of lines) {
+      if (line.trim().length === 0) continue;
+      const entry = timelineEntry(line);
+      if (entry) entries.push(entry);
+      else unreadable++;
+    }
+    entries.sort((a, b) => a.ms - b.ms);
+    if (unreadable > 0) {
+      const last = entries.at(-1) ?? { at: this.read(id).startedAt, ms: 0 };
+      const message = `${plural(unreadable, "line")} could not be read and ${unreadable === 1 ? "was" : "were"} left out`;
+      entries.push({ at: last.at, ms: last.ms, kind: "problem", label: "measured", problem: { where: "timeline.jsonl", message } });
+    }
+    return entries;
+  }
+}
+
+/** One timeline line, or undefined when it is not a timeline entry. */
+function timelineEntry(line: string): TimelineEntry | undefined {
+  try {
+    const entry = JSON.parse(line) as Partial<TimelineEntry> | null;
+    if (typeof entry !== "object" || entry === null || Array.isArray(entry)) return undefined;
+    if (typeof entry.at !== "string" || typeof entry.ms !== "number" || typeof entry.kind !== "string") return undefined;
+    return entry as TimelineEntry;
+  } catch {
+    return undefined;
   }
 }

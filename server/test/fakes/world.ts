@@ -71,6 +71,8 @@ export class FakeWorld {
   readonly brokenTools = new Set<string>();
   /** Called after a Darwin notification is posted to a device ("this-mac" for the Mac). */
   onNotify: ((device: string, name: string) => void) | undefined;
+  /** Called when `process launch` or `simctl launch` starts the app (a test can start a new run here). */
+  onLaunch: (() => void) | undefined;
 
   constructor() {
     this.phones.set(PHONE_ID, this.newPhone("phone-a1", { connected: true }));
@@ -281,6 +283,7 @@ export class FakeWorld {
   /** Prints the console lines, then runs until stopped. */
   private console(request: ExecRequest): Promise<ExecResult> {
     if (this.launchFails) return Promise.resolve(fail("ERROR: The app could not be launched. (com.apple.dt.CoreDeviceError error 10002)"));
+    this.onLaunch?.();
     for (const line of this.consoleLines) request.onStdout?.(line);
     return new Promise((resolve) => {
       const stop = () => resolve({ ...done(this.consoleLines.join("")), aborted: true, code: null });

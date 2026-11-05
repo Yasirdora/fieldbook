@@ -42,6 +42,21 @@ test("the default rules: crash, launch and hangs fail; memory passes; new errors
   assert.match(summary, /Could not save note #/);
 });
 
+test("new error messages from Apple's frameworks are listed but never warn; only the app's own do", async () => {
+  // Measured on an iPhone: 236 com.apple.* error and fault lines in 17 minutes of an unchanged app.
+  const s = setup();
+  const handler = "cannot add handler to 0 from 0 - dropping";
+  const a = await record(s, "before", { ...BEFORE, systemErrors: [handler] }, "AAAAAAAA-0000-4000-8000-000000000001");
+  const b = await record(s, "after", { ...BEFORE, systemErrors: [handler, "Unable to simultaneously satisfy constraints."] }, "BBBBBBBB-0000-4000-8000-000000000002");
+  const { data, summary } = await compareTool(s.ctx, { a, b });
+  const rule = data.rules.find((candidate) => candidate.id === "newErrors");
+  assert.equal(rule?.verdict, "pass", rule?.why);
+  assert.deepEqual(rule?.b.value, []);
+  assert.deepEqual(rule?.system, ["Unable to simultaneously satisfy constraints."]);
+  assert.deepEqual(data.warnings.filter((warning) => warning.startsWith("New error message")), []);
+  assert.match(summary, /New system messages \(com\.apple\.\*\), listed, not judged: 1 — "Unable to simultaneously satisfy constraints\."/);
+});
+
 test("marks with the same name are compared: missing, moved and changed elements are listed", async () => {
   const { ctx, a, b } = await twoSessions();
   const { data, summary } = await compareTool(ctx, { a, b });

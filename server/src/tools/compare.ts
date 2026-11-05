@@ -25,6 +25,8 @@ export interface RuleResult {
   b: Labeled<number | string[]>;
   verdict: Verdict;
   why: string;
+  /** newErrors only: new messages from Apple's frameworks (com.apple.*), listed, not judged. */
+  system?: string[];
 }
 
 export interface MarkComparison extends MarkDifferences {
@@ -92,16 +94,21 @@ function rules(a: SessionMetrics, b: SessionMetrics, config: Rules): RuleResult[
   return [...results, newErrorsRule(a, b)];
 }
 
-/** New error or fault messages (numbers stripped) are a warning, never a failure. */
+/**
+ * New error or fault messages from the app (numbers stripped) are a warning, never a failure.
+ * New messages from Apple's frameworks are listed, not judged: the system logs many on its own.
+ */
 function newErrorsRule(a: SessionMetrics, b: SessionMetrics): RuleResult {
-  const title = "New error or fault log messages (numbers stripped)";
+  const title = "New error or fault log messages from the app (numbers stripped)";
   if (!has(a.errorMessages) || !has(b.errorMessages)) {
     const which = !has(a.errorMessages) ? `a: ${a.errorMessages.reason}` : `b: ${b.errorMessages.reason}`;
     return { id: "newErrors", title, thresholds: {}, a: a.errorMessages, b: b.errorMessages, verdict: "unchecked", why: `cannot judge — ${which}` };
   }
   const before = a.errorMessages.value;
   const fresh = b.errorMessages.value.filter((message) => !before.includes(message));
-  const source = "error and fault logs in timeline.jsonl, numbers replaced by #";
+  const systemBefore = has(a.systemErrorMessages) ? a.systemErrorMessages.value : [];
+  const system = has(b.systemErrorMessages) ? b.systemErrorMessages.value.filter((message) => !systemBefore.includes(message)) : [];
+  const source = "the app's error and fault logs in timeline.jsonl (not com.apple.*), numbers replaced by #";
   return {
     id: "newErrors",
     title,
@@ -110,6 +117,7 @@ function newErrorsRule(a: SessionMetrics, b: SessionMetrics): RuleResult {
     b: measured(fresh, `${source}; only those a does not have`),
     verdict: fresh.length > 0 ? "warn" : "pass",
     why: fresh.length > 0 ? `b has ${plural(fresh.length, "message")} that a does not have` : "b has no message that a does not have",
+    system,
   };
 }
 
@@ -206,8 +214,11 @@ function ruleLine(rule: RuleResult): string {
   const verdict = rule.verdict.padEnd(10);
   if (rule.id === "newErrors") {
     if (rule.verdict === "unchecked") return `${verdict} ${rule.title}: ${rule.why}.`;
+    const quoted = (messages: string[]) => (messages.length > 0 ? ` — ${messages.map((message) => `"${message}"`).join(", ")}` : "");
     const fresh = (rule.b.value as string[]) ?? [];
-    return `${verdict} ${rule.title}: ${fresh.length}${fresh.length > 0 ? ` — ${fresh.map((message) => `"${message}"`).join(", ")}` : ""}.`;
+    const system = rule.system ?? [];
+    const systemLine = system.length > 0 ? ` New system messages (com.apple.*), listed, not judged: ${system.length}${quoted(system)}.` : "";
+    return `${verdict} ${rule.title}: ${fresh.length}${quoted(fresh)}.${systemLine}`;
   }
   const show = (value: Labeled<number | string[]>) => describe(value, UNITS[rule.id]);
   if (rule.verdict === "unchecked") return `${verdict} ${rule.title}: a ${show(rule.a)}, b ${show(rule.b)}. ${rule.why}.`;

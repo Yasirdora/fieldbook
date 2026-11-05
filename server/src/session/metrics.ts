@@ -13,8 +13,13 @@ export interface SessionMetrics {
   peakMemoryBytes: Labeled<number>;
   /** Hangs of at least rules.hangs.minMs. */
   hangs: Labeled<number>;
-  /** Error and fault log messages with numbers replaced by "#", without repeats. */
+  /** The app's own error and fault log messages with numbers replaced by "#", without repeats. */
   errorMessages: Labeled<string[]>;
+  /**
+   * The same for Apple's frameworks (subsystem com.apple.*). They are listed, never judged: the
+   * system logs many on its own (236 lines in 17 minutes of one phone session of an unchanged app).
+   */
+  systemErrorMessages: Labeled<string[]>;
   marks: number;
 }
 
@@ -45,9 +50,10 @@ export function sessionMetrics(session: SessionFile, entries: readonly TimelineE
     return isFiniteNumber(ms) && ms >= rules.hangs.minMs;
   });
   const errors = of("log")
-    .map((entry) => payload<{ level: string; message: string }>(entry))
-    .filter((log) => (log.level === "error" || log.level === "fault") && typeof log.message === "string")
-    .map((log) => normalizeMessage(log.message as string));
+    .map((entry) => payload<{ level: string; message: string; subsystem: string }>(entry))
+    .filter((log) => (log.level === "error" || log.level === "fault") && typeof log.message === "string");
+  const isSystem = (log: (typeof errors)[number]) => typeof log.subsystem === "string" && log.subsystem.startsWith("com.apple.");
+  const messages = (logs: typeof errors) => [...new Set(logs.map((log) => normalizeMessage(log.message as string)))].sort();
   const source = "timeline.jsonl (from the app's events.jsonl)";
   const copied = session.pulls.count > 0;
   return {
@@ -56,7 +62,8 @@ export function sessionMetrics(session: SessionFile, entries: readonly TimelineE
     launchMedianMs: launches.length > 0 ? measured(median(launches), source) : missing("no launch was recorded"),
     peakMemoryBytes: memory.length > 0 ? measured(Math.max(...memory), source) : missing("no memory sample was recorded"),
     hangs: copied ? measured(hangs.length, source) : missing("the mailbox was never copied"),
-    errorMessages: copied ? measured([...new Set(errors)].sort(), `${source}; numbers replaced by #`) : missing("the mailbox was never copied"),
+    errorMessages: copied ? measured(messages(errors.filter((log) => !isSystem(log))), `${source}; not com.apple.*; numbers replaced by #`) : missing("the mailbox was never copied"),
+    systemErrorMessages: copied ? measured(messages(errors.filter(isSystem)), `${source}; com.apple.* only; numbers replaced by #`) : missing("the mailbox was never copied"),
     marks: of("mark").length,
   };
 }

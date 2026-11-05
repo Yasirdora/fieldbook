@@ -15,7 +15,12 @@ import { readJson, readTextIfExists, slugify, writeJsonAtomic } from "../fsx.ts"
 import { captured, measured, missing, rendered, reported, type Labeled } from "../labels.ts";
 import type { SessionFile, TimelineEntry } from "./store.ts";
 
-/** Events may be up to this much older than the session start (the two clocks can differ a little). */
+/**
+ * Something already in the mailbox when the session started counts as part of the session when
+ * it happened no more than this long before the start (the two clocks can differ a little).
+ * What arrives later is new by its sequence number, and is compared only with the device's own
+ * clock (see `Baseline`).
+ */
 export const CLOCK_MARGIN_MS = 2_000;
 
 /** How many pulls an outbox item may hold back the ack while its files are missing. */
@@ -44,6 +49,30 @@ interface RunProgress {
   gaps: [number, number][];
 }
 
+/** The highest sequence number of one run. */
+interface RunSeq {
+  runId: string;
+  seq: number;
+}
+
+/** For events, also the newest `time` the run had written, on the device's clock. */
+interface RunEvents extends RunSeq {
+  newestMs: number;
+}
+
+/**
+ * What the mailbox held when the session began: the highest event and outbox seq of each run.
+ * Only items inside it are compared with the Mac's start time. A later event is from before the
+ * session only when it happened before the run's newest event in the baseline (a log the kit read
+ * late), so both times come from the same clock. The kit writes a memory sample every 2 s while
+ * the app runs, so that newest time is close to the start. A run the baseline does not know began
+ * later.
+ */
+export interface Baseline {
+  events: RunEvents[];
+  outbox: RunSeq[];
+}
+
 interface FiledMark {
   id: string;
   n: number;
@@ -67,6 +96,8 @@ export interface IngestState {
   /** Fingerprints of event lines already reported as skipped (each is reported once). */
   skippedKeys: string[];
   skippedLines: number;
+  /** Taken before a relaunch, else at the first pull. */
+  baseline: Baseline | null;
 }
 
 export interface IngestResult {
@@ -115,7 +146,32 @@ export function newIngestState(): IngestState {
     ackWaits: [],
     skippedKeys: [],
     skippedLines: 0,
+    baseline: null,
   };
+}
+
+/** The highest event and outbox seq of each run in a mailbox copy, and each run's newest event time. */
+export function takeBaseline(root: string): Baseline {
+  const baseline: Baseline = { events: [], outbox: [] };
+  for (const name of ["events.1.jsonl", "events.jsonl"]) {
+    const text = readRegularFile(path.join(root, name));
+    if (text === undefined) continue;
+    for (const event of parseEvents(text).events) {
+      const time = Date.parse(event.time);
+      const known = baseline.events.find((candidate) => candidate.runId === event.runId);
+      if (!known) baseline.events.push({ runId: event.runId, seq: event.seq, newestMs: time });
+      else {
+        known.seq = Math.max(known.seq, event.seq);
+        known.newestMs = Math.max(known.newestMs, time);
+      }
+    }
+  }
+  for (const item of readOutbox(root).items) {
+    const known = baseline.outbox.find((candidate) => candidate.runId === item.runId);
+    if (!known) baseline.outbox.push({ runId: item.runId, seq: item.seq });
+    else known.seq = Math.max(known.seq, item.seq);
+  }
+  return baseline;
 }
 
 function statePath(sessionDir: string): string {
@@ -166,6 +222,7 @@ class IngestRun {
 
   run(): IngestResult {
     const result: IngestResult = { entries: this.entries, marksFiled: this.marksFiled, ackUpTo: 0 };
+    this.state.baseline ??= takeBaseline(this.root);
     const helloText = readTextIfExists(path.join(this.root, "hello.json"));
     if (helloText !== undefined) {
       try {
@@ -203,7 +260,7 @@ class IngestRun {
       for (const skipped of skippedLines) this.reportSkipped(name, skipped.line, skipped.reason);
       for (const event of events) {
         if (!this.isNew(event)) continue;
-        if (Date.parse(happenedAt(event)) >= this.startedMs - CLOCK_MARGIN_MS) fresh.push(event);
+        if (!this.eventFromBefore(event)) fresh.push(event);
       }
     }
     return fresh;
@@ -217,6 +274,22 @@ class IngestRun {
     if (this.state.skippedKeys.length > 1000) this.state.skippedKeys.splice(0, this.state.skippedKeys.length - 1000);
     this.state.skippedLines++;
     this.problem(`a line of ${file} was skipped: ${reason}`);
+  }
+
+  /** True for an event that happened before the session (see `Baseline`). */
+  private eventFromBefore(event: MailboxEvent): boolean {
+    const happened = Date.parse(happenedAt(event));
+    const known = this.state.baseline?.events.find((candidate) => candidate.runId === event.runId);
+    if (!known) return this.state.baseline ? false : happened < this.startedMs - CLOCK_MARGIN_MS;
+    if (event.seq <= known.seq) return happened < this.startedMs - CLOCK_MARGIN_MS;
+    return happened < known.newestMs - CLOCK_MARGIN_MS;
+  }
+
+  /** True for an outbox item that was already in the mailbox when the session began, from before the start. */
+  private outboxFromBefore(item: OutboxItem): boolean {
+    const known = this.state.baseline?.outbox.find((candidate) => candidate.runId === item.runId);
+    if (this.state.baseline && (!known || item.seq > known.seq)) return false;
+    return Date.parse(item.time) < this.startedMs - CLOCK_MARGIN_MS;
   }
 
   /** True the first time an event is seen. Sequence numbers skipped on the way are kept as gaps. */
@@ -460,7 +533,7 @@ class IngestRun {
   }
 
   private ackable(item: OutboxItem): boolean {
-    if (Date.parse(item.time) < this.startedMs - CLOCK_MARGIN_MS) return true;
+    if (this.outboxFromBefore(item)) return true;
     const snapshotMissing = isSafeName(item.snapshotId) && !this.state.copied.snapshots.includes(item.snapshotId);
     const fileMissing = typeof item.file === "string" && !this.state.copied.files.includes(item.file);
     if (!snapshotMissing && !fileMissing) return true;

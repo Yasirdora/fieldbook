@@ -12,7 +12,7 @@ import type { ExecResult } from "../exec.ts";
 import { buildCommand, commandFileName, type Command, type CommandArgs, type CommandName } from "../format.ts";
 import { failureText } from "../runner.ts";
 import { measured, missing, reported, type Labeled } from "../labels.ts";
-import { ingest, loadIngestState, saveIngestState, type IngestResult, type IngestState } from "./ingest.ts";
+import { ingest, loadIngestState, saveIngestState, takeBaseline, type IngestResult, type IngestState } from "./ingest.ts";
 import type { SessionFile, SessionStore, TimelineEntry } from "./store.ts";
 
 export interface PullReport {
@@ -104,6 +104,19 @@ export class Recorder {
 
   sendCommand(name: CommandName, args: CommandArgs = {}): Promise<SentCommand> {
     return this.serial(() => this.send(name, args));
+  }
+
+  /**
+   * Notes what the mailbox holds before a relaunch, so everything the new run writes counts,
+   * whatever the two clocks say. When the copy fails, the first pull notes it instead.
+   */
+  noteMailboxBeforeRelaunch(): Promise<void> {
+    return this.serial(async () => {
+      const pulled = await this.device.pullMailbox(this.session.bundleId, path.join(this.dir, "raw", "pull"));
+      if (pulled.label === "missing" || !pulled.value) return;
+      this.state.baseline = takeBaseline(pulled.value);
+      saveIngestState(this.dir, this.state);
+    });
   }
 
   /** Copies the mailbox, files what is new, and acknowledges the outbox items it copied. */
@@ -203,7 +216,7 @@ export class Recorder {
     if (this.stopping) return this.stopping;
     if (this.timer) clearInterval(this.timer);
     this.timer = undefined;
-    this.stopping = this.serial(async () => {
+    const stopping = this.serial(async () => {
       const pull = await this.pull();
       const crashSign = this.crashSign;
       if (crashSign !== null) await this.waitForCrashReport();
@@ -216,7 +229,12 @@ export class Recorder {
       if (this.ctx.recorders.get(this.session.id) === this) this.ctx.recorders.delete(this.session.id);
       return { pull, newCrashLogs: listed, copyFailures, crashSign };
     });
-    return this.stopping;
+    this.stopping = stopping;
+    // Only a stop that finished is kept; one that failed can be tried again.
+    stopping.catch(() => {
+      if (this.stopping === stopping) this.stopping = undefined;
+    });
+    return stopping;
   }
 
   /** Lists crash logs until a new one of this app is there, for at most CRASH_REPORT_WAIT_MS. */

@@ -26,8 +26,14 @@ export function findMailboxRoot(stagingDir: string, maxDepth = 4): string | unde
     if (MARKERS.some((marker) => names.includes(marker))) return dir;
     if (depth >= maxDepth) continue;
     for (const name of names.sort()) {
+      if (name.startsWith(".")) continue;
       const child = path.join(dir, name);
-      if (!name.startsWith(".") && fs.statSync(child).isDirectory()) queue.push({ dir: child, depth: depth + 1 });
+      // lstat never follows a link, so the search stays inside the copy. An entry it cannot read is skipped.
+      try {
+        if (fs.lstatSync(child).isDirectory()) queue.push({ dir: child, depth: depth + 1 });
+      } catch {
+        continue;
+      }
     }
   }
   return undefined;

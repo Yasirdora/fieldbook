@@ -180,6 +180,7 @@ function textModeLine(session: SessionFile, input: SessionStartInput): string[] 
 }
 
 async function relaunch(ctx: Context, recorder: Recorder, input: SessionStartInput): Promise<string> {
+  await recorder.noteMailboxBeforeRelaunch();
   const args = input.fullText ? (LAUNCH_ARGUMENT_SETS[1] as readonly string[]) : [];
   const launch = recorder.startConsole(args);
   if (!launch.started) return `The app was NOT relaunched: ${launch.reason}`;
@@ -221,7 +222,11 @@ export async function sessionStop(ctx: Context, input: { session: string }): Pro
     `Stopped session ${stopped.id} "${stopped.label}" after ${duration} (${plural(stopped.pulls.count, "pull")}).${pull.ok ? "" : ` The last pull failed: ${pull.problem}`}`,
     `Timeline: ${plural(entries, "entry", "entries")}, ${plural(metrics.marks, "mark")}, ${
       metrics.hangs.label === "missing" ? `hangs: ${metrics.hangs.reason}` : `${plural(metrics.hangs.value ?? 0, "hang")} of ${ctx.config.rules.hangs.minMs} ms or more`
-    }, ${metrics.errorMessages.label === "missing" ? "error messages: missing" : plural(metrics.errorMessages.value?.length ?? 0, "different error message")}, peak memory ${describe(metrics.peakMemoryBytes, formatBytes)}.`,
+    }, ${
+      metrics.errorMessages.label === "missing"
+        ? "error messages: missing"
+        : `${plural(metrics.errorMessages.value?.length ?? 0, "different error message")} from the app, ${metrics.systemErrorMessages.value?.length ?? 0} from the system`
+    }, peak memory ${describe(metrics.peakMemoryBytes, formatBytes)}.`,
     crashLine(newCrashLogs, copyFailures, crashSign),
     `Files: ${store.dir(stopped.id)}`,
   ];

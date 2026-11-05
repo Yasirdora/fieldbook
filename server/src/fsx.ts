@@ -28,10 +28,33 @@ export function readTextIfExists(file: string): string | undefined {
   }
 }
 
+/**
+ * Appends lines. When the file does not end with a newline (a write was cut off), the new lines
+ * start on a line of their own, so the cut-off line stays one bad line.
+ */
 export function appendLines(file: string, lines: readonly string[]): void {
   if (lines.length === 0) return;
   fs.mkdirSync(path.dirname(file), { recursive: true });
-  fs.appendFileSync(file, lines.map((line) => `${line}\n`).join(""));
+  const text = lines.map((line) => `${line}\n`).join("");
+  fs.appendFileSync(file, endsWithoutNewline(file) ? `\n${text}` : text);
+}
+
+function endsWithoutNewline(file: string): boolean {
+  let fd: number;
+  try {
+    fd = fs.openSync(file, "r");
+  } catch {
+    return false;
+  }
+  try {
+    const size = fs.fstatSync(fd).size;
+    if (size === 0) return false;
+    const last = Buffer.alloc(1);
+    fs.readSync(fd, last, 0, 1, size - 1);
+    return last[0] !== 0x0a;
+  } finally {
+    fs.closeSync(fd);
+  }
 }
 
 /**

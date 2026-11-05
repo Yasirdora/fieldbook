@@ -10,6 +10,8 @@ export interface Steps {
   hangs: number[];
   peakMb: number;
   errors: string[];
+  /** Error lines from Apple's frameworks (subsystem com.apple.UIKit). */
+  systemErrors?: string[];
   crash?: string;
   editTrees?: (tree: any, ax: any) => void;
 }
@@ -39,6 +41,7 @@ export async function record(s: ReturnType<typeof setup>, label: string, steps: 
   for (const ms of steps.hangs) kit.hang(ms);
   kit.memory(steps.peakMb * MB * 0.8, steps.peakMb * MB);
   for (const message of steps.errors) kit.log("error", message, "store");
+  for (const message of steps.systemErrors ?? []) kit.log("error", message, "LayoutConstraints", "com.apple.UIKit");
   s.clock.advance(2_000);
   kit.shake("pin on the wrong page");
   if (steps.crash) s.world.phone().crashLogs.set(steps.crash, "{\"crash\":true}");
