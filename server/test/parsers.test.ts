@@ -29,6 +29,15 @@ test("list devices: new properties first, deprecated fields as fallback", () => 
   assert.deepEqual(devices.filter(isPhoneLike).map((d) => d.name), ["Test iPhone", "Test iPad"]);
 });
 
+test("list devices: simulators that devicectl lists are not phones", () => {
+  const devices = parseDeviceList(fixture("devicectl-list-devices-simulators.json"));
+  assert.deepEqual(devices.map((d) => d.reality), ["physical", "simulated", "simulated"]);
+  assert.equal(devices[1]?.from.reality, "properties");
+  assert.deepEqual(devices.filter(isPhoneLike).map((d) => d.name), ["Test iPhone"]);
+  const old = { result: { devices: [{ identifier: "x", hardwareProperties: { platform: "iOS", reality: "simulated" } }] } };
+  assert.deepEqual(parseDeviceList(old).filter(isPhoneLike), []);
+});
+
 test("list devices: anything unexpected gives an empty list, not a crash", () => {
   assert.deepEqual(parseDeviceList(undefined), []);
   assert.deepEqual(parseDeviceList({ result: { devices: "nope" } }), []);

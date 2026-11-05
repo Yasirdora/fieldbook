@@ -15,7 +15,7 @@ import { attachCapture, capturePath, findMarkByCommand, isSafeName, readMarkFile
 import { findOutboxItem } from "../session/outbox.ts";
 import { Recorder } from "../session/recorder.ts";
 import { SessionStore } from "../session/store.ts";
-import { markTitle } from "../session/text.ts";
+import { accessibilityText, markTitle } from "../session/text.ts";
 import { windowNumberIn } from "../session/windows.ts";
 import { recorderFor } from "../session/open.ts";
 import { writeJsonAtomic } from "../fsx.ts";
@@ -104,7 +104,7 @@ function markPieces(markFile: ReturnType<typeof readMarkFile>, shot: Labeled<str
   return [
     captureText(shot),
     snapshot ? `tree ${snapshot.nodes ?? "?"} nodes (measured)` : "the snapshot is not copied yet",
-    snapshot && snapshot.axNodes !== null ? `accessibility ${snapshot.axNodes} nodes (measured)` : undefined,
+    snapshot && snapshot.axNodes !== null ? accessibilityText(snapshot.axNodes, " (measured)") : undefined,
     markFile.parts.state.label === "reported" ? "app state (reported)" : undefined,
     markFile.parts.screenRendered.label === "rendered" ? "rendered screen (rendered)" : undefined,
   ].filter((piece): piece is string => piece !== undefined);
@@ -163,7 +163,7 @@ function snapshotSummary(id: string, folder: string, shot: Labeled<string>, want
   const has = (file: string) => fs.existsSync(path.join(folder, file));
   const parts = [
     has("tree.json") ? `tree ${info.tree?.nodes ?? "?"} nodes (measured)` : undefined,
-    has("ax.json") ? `accessibility ${info.ax?.nodes ?? "?"} nodes (measured)` : undefined,
+    has("ax.json") ? accessibilityText(info.ax?.nodes, " (measured)") : undefined,
     has("state.json") ? "app state (reported)" : undefined,
     has("screen-rendered.png") ? "rendered screen (rendered)" : undefined,
     wantScreen ? (shot.label === "captured" ? "real screen (captured)" : `real screen missing: ${shot.reason}`) : undefined,

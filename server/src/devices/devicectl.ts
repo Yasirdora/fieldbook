@@ -114,6 +114,8 @@ export interface DeviceListing {
   /** Only in the deprecated connectionProperties. */
   tunnelState?: string;
   bootState?: string;
+  /** "physical" or "simulated": devicectl lists the Mac's simulators too. */
+  reality?: string;
   /** For each field: whether it came from `properties` or from the deprecated fields. */
   from: Record<string, "properties" | "deprecated">;
 }
@@ -167,13 +169,18 @@ export function parseDeviceList(json: unknown): DeviceListing[] {
     field("pairingState", at(entry, "properties", "connection", "pairingState"), at(entry, "connectionProperties", "pairingState"));
     field("tunnelState", undefined, at(entry, "connectionProperties", "tunnelState"));
     field("bootState", at(entry, "properties", "state", "bootState"), at(entry, "deviceProperties", "bootState"));
+    field("reality", at(entry, "properties", "hardware", "reality"), at(entry, "hardwareProperties", "reality"));
     listings.push(listing);
   }
   return listings;
 }
 
-/** Phones and iPads: the devices Fieldbook records as target "phone". */
+/**
+ * Phones and iPads: the devices Fieldbook records as target "phone". A simulator listed by
+ * devicectl is not one; Fieldbook reaches simulators through simctl.
+ */
 export function isPhoneLike(listing: DeviceListing): boolean {
+  if (listing.reality === "simulated") return false;
   return listing.platform === "iOS" || listing.platform === "iPadOS";
 }
 

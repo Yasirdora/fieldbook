@@ -81,8 +81,8 @@ export class FakeKit {
     fs.appendFileSync(path.join(this.dir, "events.jsonl"), `${JSON.stringify(line)}\n`);
   }
 
-  log(level: string, message: string, category = "list"): void {
-    this.event("log", { level, subsystem: this.options.bundleId, category, message, cut: false, logTime: this.now() });
+  log(level: string, message: string, category = "list", subsystem = this.options.bundleId): void {
+    this.event("log", { level, subsystem, category, message, cut: false, logTime: this.now() });
   }
 
   hang(ms: number): void {

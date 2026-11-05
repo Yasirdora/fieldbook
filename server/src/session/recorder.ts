@@ -26,7 +26,20 @@ export interface StopResult {
   pull: PullReport;
   newCrashLogs: Labeled<string[]>;
   copyFailures: string[];
+  /** Why stop waited for a crash report, or null when it had no reason to. */
+  crashSign: string | null;
 }
+
+/**
+ * A crash report can appear well after the crash (measured on a simulator: 5.1 s and 17.6 s).
+ * When the console shows a fatal error or the app's process ends, stop keeps listing crash
+ * logs for up to this long.
+ */
+export const CRASH_REPORT_WAIT_MS = 45_000;
+const CRASH_REPORT_POLL_MS = 2_000;
+
+/** What a crashing app prints last: Swift's runtime trap, or an uncaught Objective-C exception. */
+const CRASH_LINE = /Fatal error:|Terminating app due to uncaught exception/;
 
 export interface SentCommand {
   command: Command;
@@ -44,6 +57,7 @@ export class Recorder {
   private timer: NodeJS.Timeout | undefined;
   private console: { controller: AbortController; done: Promise<ExecResult> } | undefined;
   private stopping: Promise<StopResult> | undefined;
+  private crashSign: string | null = null;
 
   constructor(ctx: Context, store: SessionStore, device: Device, session: SessionFile) {
     this.ctx = ctx;
@@ -163,10 +177,18 @@ export class Recorder {
   startConsole(args: readonly string[]): Launch {
     const controller = new AbortController();
     const consoleFile = path.join(this.dir, "console.log");
-    const launch = this.device.launch(this.session.bundleId, args, (text) => fs.appendFileSync(consoleFile, text), controller.signal);
+    let tail = "";
+    const onOutput = (text: string) => {
+      fs.appendFileSync(consoleFile, text);
+      const recent = tail + text;
+      if (this.crashSign === null && CRASH_LINE.test(recent)) this.crashSign = "the console showed a fatal error";
+      tail = recent.slice(-200);
+    };
+    const launch = this.device.launch(this.session.bundleId, args, onOutput, controller.signal);
     if (!launch.started) return launch;
     this.console = { controller, done: launch.done };
     void launch.done.then((result) => {
+      if (!result.aborted) this.crashSign ??= "the app's process ended";
       if (result.stderr.trim().length > 0) fs.appendFileSync(consoleFile, `\n[stderr of ${launch.command}]\n${result.stderr}`);
       if (!result.aborted && result.code !== 0) {
         this.session.problems.push(`the console ended early: ${failureText(result)}`);
@@ -183,6 +205,8 @@ export class Recorder {
     this.timer = undefined;
     this.stopping = this.serial(async () => {
       const pull = await this.pull();
+      const crashSign = this.crashSign;
+      if (crashSign !== null) await this.waitForCrashReport();
       const { listed, copyFailures } = await this.pickUpCrashes();
       await this.stopConsole();
       this.session.crashes = listed;
@@ -190,9 +214,30 @@ export class Recorder {
       this.session.endedAt = this.ctx.now().toISOString();
       this.save();
       if (this.ctx.recorders.get(this.session.id) === this) this.ctx.recorders.delete(this.session.id);
-      return { pull, newCrashLogs: listed, copyFailures };
+      return { pull, newCrashLogs: listed, copyFailures, crashSign };
     });
     return this.stopping;
+  }
+
+  /** Lists crash logs until a new one of this app is there, for at most CRASH_REPORT_WAIT_MS. */
+  private async waitForCrashReport(): Promise<void> {
+    for (let waited = 0; waited < CRASH_REPORT_WAIT_MS; waited += CRASH_REPORT_POLL_MS) {
+      if ((await this.freshCrashLogNames()).length > 0) return;
+      await this.ctx.sleep(CRASH_REPORT_POLL_MS);
+    }
+  }
+
+  /** Crash logs named like this app's that were not there when the session started. */
+  private async freshCrashLogNames(): Promise<string[]> {
+    const executable = this.executable();
+    const before = this.session.crashLogsAtStart;
+    if (!executable || before.label === "missing") return [];
+    const now = await this.device.crashLogNames();
+    return (now.value ?? []).filter((name) => isCrashLogOf(name, executable) && !(before.value ?? []).includes(name));
+  }
+
+  private executable(): string | undefined {
+    return this.session.app.executable.value ?? this.session.hello?.executable ?? this.session.app.name.value;
   }
 
   /**
@@ -200,7 +245,7 @@ export class Recorder {
    * listing (measured); a log that cannot be copied still counts, and its reason is kept.
    */
   private async pickUpCrashes(): Promise<{ listed: Labeled<string[]>; copyFailures: string[] }> {
-    const executable = this.session.app.executable.value ?? this.session.hello?.executable ?? this.session.app.name.value;
+    const executable = this.executable();
     if (!executable) return { listed: missing("the app's executable name is unknown (the app never wrote hello.json)"), copyFailures: [] };
     const before = this.session.crashLogsAtStart;
     if (before.label === "missing") return { listed: missing(`the crash log list at the start could not be read: ${before.reason}`), copyFailures: [] };
@@ -224,7 +269,7 @@ export class Recorder {
         this.session.problems.push(why);
       }
       counted.push(name);
-      const at = this.ctx.now().toISOString();
+      const at = (copied ? crashTime(result.value as string) : undefined) ?? this.ctx.now().toISOString();
       entries.push({
         at,
         ms: Date.parse(at) - Date.parse(this.session.startedAt),
@@ -256,18 +301,54 @@ export class Recorder {
   }
 }
 
-/** The bundle id in a crash report's first line (an .ips header), if it has one. */
-function crashBundleId(file: string): string | undefined {
+/** Crash reports above this size are not parsed (a real one is about 100 KB). */
+const CRASH_REPORT_MAX_BYTES = 8 * 1024 * 1024;
+
+/**
+ * A crash report (.ips) is a JSON header line followed by the report as one JSON object.
+ * Either part is undefined when it is missing or not an object.
+ */
+function crashReport(file: string): { header?: Record<string, unknown>; body?: Record<string, unknown> } {
   try {
-    const handle = fs.openSync(file, "r");
-    const buffer = Buffer.alloc(64 * 1024);
-    const length = fs.readSync(handle, buffer, 0, buffer.length, 0);
-    fs.closeSync(handle);
-    const firstLine = buffer.subarray(0, length).toString("utf8").split("\n")[0] ?? "";
-    const header: unknown = JSON.parse(firstLine);
-    const bundleId = typeof header === "object" && header !== null ? (header as { bundleID?: unknown }).bundleID : undefined;
-    return typeof bundleId === "string" ? bundleId : undefined;
+    if (fs.statSync(file).size > CRASH_REPORT_MAX_BYTES) return {};
+    const text = fs.readFileSync(file, "utf8");
+    const split = text.indexOf("\n");
+    const object = (part: string): Record<string, unknown> | undefined => {
+      try {
+        const value: unknown = JSON.parse(part);
+        return typeof value === "object" && value !== null ? (value as Record<string, unknown>) : undefined;
+      } catch {
+        return undefined;
+      }
+    };
+    return split < 0 ? { header: object(text) } : { header: object(text.slice(0, split)), body: object(text.slice(split + 1)) };
   } catch {
-    return undefined;
+    return {};
   }
+}
+
+/** The bundle id in a crash report's header, if it has one. */
+function crashBundleId(file: string): string | undefined {
+  const bundleId = crashReport(file).header?.bundleID;
+  return typeof bundleId === "string" ? bundleId : undefined;
+}
+
+/**
+ * When the crash happened, as an ISO time: the report's "captureTime". The header's
+ * "timestamp" is when the report was written (measured on a simulator: 5.1 s after the
+ * capture) and is used only when the body has no capture time. The pickup can be later still.
+ */
+export function crashTime(file: string): string | undefined {
+  const { header, body } = crashReport(file);
+  return reportTime(body?.captureTime) ?? reportTime(header?.timestamp);
+}
+
+/** "2026-11-05 10:20:03.8805 +0100" as an ISO time. */
+function reportTime(stamp: unknown): string | undefined {
+  if (typeof stamp !== "string") return undefined;
+  const parts = /^(\d{4}-\d{2}-\d{2}) (\d{2}:\d{2}:\d{2})(\.\d+)? ([+-])(\d{2})(\d{2})$/.exec(stamp.trim());
+  if (!parts) return undefined;
+  const fraction = (parts[3] ?? "").slice(0, 4);
+  const time = Date.parse(`${parts[1]}T${parts[2]}${fraction}${parts[4]}${parts[5]}:${parts[6]}`);
+  return Number.isNaN(time) ? undefined : new Date(time).toISOString();
 }

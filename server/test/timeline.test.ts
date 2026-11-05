@@ -5,6 +5,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { sessionStart } from "../src/tools/session.ts";
 import { timelineTool } from "../src/tools/timeline.ts";
+import { accessibilityText } from "../src/session/text.ts";
 import { BUNDLE, PHONE_ID } from "./fakes/world.ts";
 import { kitOn, setup } from "./testContext.ts";
 
@@ -63,6 +64,38 @@ test("around a mark with a custom window, and kinds as a filter", async () => {
   assert.equal(onlyLogs.data.entries.length, 3);
   const memory = await timelineTool(ctx, { session: id, kinds: ["memory"] });
   assert.match(memory.summary, /memory 50\.0 MB \(peak 100\.0 MB\)/);
+});
+
+test("system log lines below error level are left out by default, and counted", async () => {
+  const s = setup();
+  const kit = kitOn(s.world, s.clock).launch();
+  const { data } = await sessionStart(s.ctx, { target: "phone", device: PHONE_ID, bundleId: BUNDLE, label: "quiet" });
+  s.clock.advance(1_000);
+  kit.log("info", "Loaded 3 notes");
+  kit.log("notice", "Scene will enter foreground", "Scene", "com.apple.UIKit");
+  kit.log("info", "Connection activated", "connection", "com.apple.xpc");
+  kit.log("error", "Failed to fetch the font", "fonts", "com.apple.CoreText");
+  await s.ctx.recorders.get(data.session!.id)?.pullOnce();
+
+  const { summary, data: shown } = await timelineTool(s.ctx, { session: data.session!.id });
+  assert.match(summary, /Loaded 3 notes/);
+  assert.match(summary, /Failed to fetch the font/, "a system error stays");
+  assert.doesNotMatch(summary, /Scene will enter foreground|Connection activated/);
+  assert.match(summary, /\(2 system log lines below error level left out; kinds: \["log"\] shows every log line\)/);
+  assert.equal(shown.entries.filter((entry) => entry.kind === "log").length, 2);
+
+  const every = await timelineTool(s.ctx, { session: data.session!.id, kinds: ["log"] });
+  assert.equal(every.data.entries.length, 4);
+  assert.doesNotMatch(every.summary, /left out/);
+});
+
+test("an accessibility tree that is only the window reads as missing, never as measured", () => {
+  assert.equal(accessibilityText(32, " (measured)"), "accessibility 32 nodes (measured)");
+  for (const nodes of [0, 1]) {
+    const words = accessibilityText(nodes, " (measured)");
+    assert.match(words, /^accessibility tree empty \(missing: SwiftUI builds it only while VoiceOver or Accessibility Inspector is attached\)$/);
+    assert.doesNotMatch(words, /measured/);
+  }
 });
 
 test("an unknown session or mark gives a clear message", async () => {

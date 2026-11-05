@@ -17,6 +17,18 @@ function readMark(sessionDir: string, dir: string): MarkFile | undefined {
   }
 }
 
+/**
+ * The accessibility tree in words. A tree with no element below the window is not a
+ * measurement of the screen: SwiftUI builds its accessibility elements only while an
+ * assistive technology (VoiceOver, Accessibility Inspector) is attached, so without one
+ * the tree is the bare window (measured on a simulator: 1 node, and 32 with it attached).
+ */
+export function accessibilityText(nodes: number | null | undefined, label = ""): string {
+  if (nodes === null || nodes === undefined) return `accessibility ? nodes${label}`;
+  if (nodes <= 1) return "accessibility tree empty (missing: SwiftUI builds it only while VoiceOver or Accessibility Inspector is attached)";
+  return `accessibility ${nodes} nodes${label}`;
+}
+
 export function markTitle(mark: { n: number; name: string | null; source: string }): string {
   return mark.name ? `mark ${mark.n} "${mark.name}"` : `mark ${mark.n} (${mark.source})`;
 }
@@ -26,7 +38,7 @@ function markDetails(markFile: MarkFile | undefined): string {
   const capture = markFile.parts.screenCaptured.label === "captured" ? "screen captured" : "no real capture";
   if (!markFile.snapshot) return `(${capture}, snapshot not copied yet)`;
   const tree = markFile.snapshot.nodes === null ? "no tree" : `tree ${markFile.snapshot.nodes} nodes`;
-  const ax = markFile.snapshot.axNodes === null ? "" : `, accessibility ${markFile.snapshot.axNodes} nodes`;
+  const ax = markFile.snapshot.axNodes === null ? "" : `, ${accessibilityText(markFile.snapshot.axNodes)}`;
   return `(${capture}, ${tree}${ax}${markFile.snapshot.truncated ? ", cut at 5000 nodes" : ""})`;
 }
 
@@ -56,7 +68,7 @@ function describeEntry(entry: TimelineEntry, sessionDir: string): string {
     }
     case "snapshot": {
       const snapshot = payload<{ id: string; nodes: number; axNodes: number; dir: string }>(entry);
-      return `snapshot ${snapshot.id} (tree ${snapshot.nodes} nodes, accessibility ${snapshot.axNodes} nodes) → ${snapshot.dir}`;
+      return `snapshot ${snapshot.id} (tree ${snapshot.nodes} nodes, ${accessibilityText(snapshot.axNodes)}) → ${snapshot.dir}`;
     }
     case "command": {
       const command = payload<{ name: string; via: string }>(entry);

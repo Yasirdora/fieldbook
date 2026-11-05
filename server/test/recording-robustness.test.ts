@@ -4,9 +4,11 @@
  */
 import assert from "node:assert/strict";
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { createContext } from "../src/context.ts";
+import { crashTime } from "../src/session/recorder.ts";
 import { markTool, snapshotTool } from "../src/tools/mark.ts";
 import { sessionStart, sessionStop } from "../src/tools/session.ts";
 import { BUNDLE, MAC_BUNDLE, PHONE_ID, PNG } from "./fakes/world.ts";
@@ -72,6 +74,62 @@ test("calls that overlap a stop do not reopen the session, and a second stop doe
   const session = JSON.parse(fs.readFileSync(path.join(sessionDir(ctx, id), "session.json"), "utf8"));
   assert.equal(session.status, "stopped");
   assert.equal(timeline(sessionDir(ctx, id)).filter((entry) => entry.kind === "crash").length, 1);
+});
+
+/** A crash report as the system writes it: a JSON header line, then the report as one JSON object. */
+function crashReport(written: string, captured?: string): string {
+  const header = JSON.stringify({ app_name: "Sparrowpad", timestamp: written, bundleID: BUNDLE, bug_type: "309" });
+  return `${header}\n${JSON.stringify(captured ? { captureTime: captured, procName: "Sparrowpad" } : { procName: "Sparrowpad" })}`;
+}
+
+test("after a fatal error in the console, stop waits for a crash report that arrives late", async () => {
+  const { ctx, world, clock, duringSleep } = setup();
+  kitOn(world, clock).launch();
+  world.consoleLines = ["Sparrowpad: launched\n", "Sparrowpad/TestTools.swift:51: Fatal ", "error: test crash\n"];
+  const { data } = await sessionStart(ctx, { ...START, relaunch: true });
+  const id = data.session!.id;
+  const stopAt = clock.now().getTime();
+  duringSleep.push(() => {
+    if (clock.now().getTime() - stopAt >= 18_000) {
+      world.phone().crashLogs.set("Sparrowpad-2026-11-04-101512.ips", crashReport("2026-11-04 11:15:12.00 +0100", "2026-11-04 11:15:06.8805 +0100"));
+    }
+  });
+  const { summary } = await sessionStop(ctx, { session: id });
+  assert.match(summary, /Crashes: 1 new crash log \(measured\): Sparrowpad-2026-11-04-101512\.ips\./);
+  const crash = timeline(sessionDir(ctx, id)).find((entry) => entry.kind === "crash");
+  assert.equal(crash?.at, "2026-11-04T10:15:06.880Z", "the crash is timed by the report's capture time, not by when it was written or picked up");
+});
+
+test("crash time: the capture time, else when the report was written", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "crash-time-"));
+  const write = (name: string, text: string) => {
+    fs.writeFileSync(path.join(dir, name), text);
+    return path.join(dir, name);
+  };
+  assert.equal(crashTime(write("a.ips", crashReport("2026-11-05 10:20:09.00 +0100", "2026-11-05 10:20:03.8805 +0100"))), "2026-11-05T09:20:03.880Z");
+  assert.equal(crashTime(write("b.ips", crashReport("2026-11-05 10:20:09.00 +0100"))), "2026-11-05T09:20:09.000Z");
+  assert.equal(crashTime(write("c.ips", "not a report")), undefined);
+});
+
+test("without a sign of a crash, stop does not wait, and says when it looked", async () => {
+  const { ctx, world, clock } = setup();
+  kitOn(world, clock).launch();
+  const { data } = await sessionStart(ctx, START);
+  const before = clock.now().getTime();
+  const { summary } = await sessionStop(ctx, { session: data.session!.id });
+  assert.equal(clock.now().getTime(), before);
+  assert.match(summary, /Crashes: no new crash log of this app when the session stopped \(measured\)\./);
+});
+
+test("a fatal error with no crash report says that Fieldbook waited, and how long", async () => {
+  const { ctx, world, clock } = setup();
+  kitOn(world, clock).launch();
+  world.consoleLines = ["Terminating app due to uncaught exception 'NSRangeException'\n"];
+  const { data } = await sessionStart(ctx, { ...START, relaunch: true });
+  const before = clock.now().getTime();
+  const { summary } = await sessionStop(ctx, { session: data.session!.id });
+  assert.ok(clock.now().getTime() - before >= 45_000);
+  assert.match(summary, /no new crash log of this app \(measured\), although the console showed a fatal error; Fieldbook waited 45 s for one\./);
 });
 
 test("a relaunch that fails is reported as failed, and its error output is kept", async () => {

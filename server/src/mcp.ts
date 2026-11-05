@@ -108,7 +108,7 @@ export function createServer(ctx: Context): McpServer {
     {
       title: "Timeline",
       description:
-        "A short text timeline of a session, for example '00:12.4 mark 3 \"pin on the wrong page\" (screen captured, tree 412 nodes)'. around (a mark number or name) narrows it to ±seconds (default 10). kinds filters (launch, lifecycle, log, hang, memory, mark, note, snapshot, command, metrickit, problem, crash).",
+        "A short text timeline of a session, for example '00:12.4 mark 3 \"pin on the wrong page\" (screen captured, tree 412 nodes)'. around (a mark number or name) narrows it to ±seconds (default 10). kinds filters (launch, lifecycle, log, hang, memory, mark, note, snapshot, command, metrickit, problem, crash). By default, memory samples, command reads and system log lines below error level are left out.",
       inputSchema: {
         session: z.string().min(1),
         around: z.string().optional(),

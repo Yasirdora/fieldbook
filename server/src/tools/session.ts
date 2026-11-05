@@ -14,7 +14,7 @@ import { describe, missing, type Labeled } from "../labels.ts";
 import type { ExecResult } from "../exec.ts";
 import { failureText } from "../runner.ts";
 import { recorderFor } from "../session/open.ts";
-import { Recorder, type PullReport } from "../session/recorder.ts";
+import { CRASH_REPORT_WAIT_MS, Recorder, type PullReport } from "../session/recorder.ts";
 import { sessionMetrics } from "../session/metrics.ts";
 import { SessionStore, type SessionFile } from "../session/store.ts";
 import { formatBytes, formatDuration, plural, ToolError, type ToolAnswer } from "./common.ts";
@@ -212,7 +212,7 @@ export async function sessionStop(ctx: Context, input: { session: string }): Pro
     return { summary: `Session ${session.id} was already stopped at ${session.endedAt}.`, data: { session: session.id, status: "stopped" } };
   }
   const recorder = await recorderFor(ctx, store, session);
-  const { pull, newCrashLogs, copyFailures } = await recorder.stop();
+  const { pull, newCrashLogs, copyFailures, crashSign } = await recorder.stop();
   const stopped = recorder.current;
   const metrics = sessionMetrics(stopped, store.readTimeline(stopped.id), ctx.config.rules);
   const duration = formatDuration(Date.parse(stopped.endedAt ?? stopped.startedAt) - Date.parse(stopped.startedAt));
@@ -222,16 +222,19 @@ export async function sessionStop(ctx: Context, input: { session: string }): Pro
     `Timeline: ${plural(entries, "entry", "entries")}, ${plural(metrics.marks, "mark")}, ${
       metrics.hangs.label === "missing" ? `hangs: ${metrics.hangs.reason}` : `${plural(metrics.hangs.value ?? 0, "hang")} of ${ctx.config.rules.hangs.minMs} ms or more`
     }, ${metrics.errorMessages.label === "missing" ? "error messages: missing" : plural(metrics.errorMessages.value?.length ?? 0, "different error message")}, peak memory ${describe(metrics.peakMemoryBytes, formatBytes)}.`,
-    crashLine(newCrashLogs, copyFailures),
+    crashLine(newCrashLogs, copyFailures, crashSign),
     `Files: ${store.dir(stopped.id)}`,
   ];
   return { summary: lines.join("\n"), data: { session: stopped.id, status: "stopped", dir: store.dir(stopped.id), newCrashLogs, copyFailures } };
 }
 
-function crashLine(crashes: Labeled<string[]>, copyFailures: string[]): string {
+function crashLine(crashes: Labeled<string[]>, copyFailures: string[], crashSign: string | null): string {
   if (crashes.label === "missing") return `Crashes: missing — ${crashes.reason}`;
   const names = crashes.value ?? [];
-  if (names.length === 0) return "Crashes: no new crash log of this app (measured).";
+  if (names.length === 0 && crashSign !== null) {
+    return `Crashes: no new crash log of this app (measured), although ${crashSign}; Fieldbook waited ${CRASH_REPORT_WAIT_MS / 1000} s for one.`;
+  }
+  if (names.length === 0) return "Crashes: no new crash log of this app when the session stopped (measured).";
   const failed = copyFailures.length > 0 ? ` ${copyFailures.join("; ")}.` : "";
   return `Crashes: ${plural(names.length, "new crash log")} (measured): ${names.join(", ")}.${failed}`;
 }

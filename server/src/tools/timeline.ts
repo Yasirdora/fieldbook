@@ -1,7 +1,7 @@
 /**
  * timeline: a concise text summary of session events. `around` (a mark number or name) narrows it to
  * ±`seconds` (default 10) around that mark. `kinds` chooses what to show; by default
- * everything except memory samples and command reads.
+ * everything except memory samples, command reads, and system log lines below error level.
  */
 import type { Context } from "../context.ts";
 import { describe } from "../labels.ts";
@@ -25,6 +25,18 @@ export interface TimelineData {
 
 const HIDDEN_BY_DEFAULT = new Set(["memory", "command"]);
 const DEFAULT_SECONDS = 10;
+
+/**
+ * Apple's frameworks log hundreds of notice and info lines a minute inside the app's process
+ * (measured: 435 of 449 log lines in a two-minute session). By default the timeline keeps the
+ * app's own log lines and every error or fault; `kinds: ["log"]` shows them all.
+ */
+function isSystemChatter(entry: TimelineEntry): boolean {
+  if (entry.kind !== "log") return false;
+  const log = entry.log as { level?: unknown; subsystem?: unknown };
+  if (log.level === "error" || log.level === "fault") return false;
+  return typeof log.subsystem === "string" && log.subsystem.startsWith("com.apple.");
+}
 
 interface MarkPayload {
   n: number;
@@ -62,21 +74,25 @@ export async function timelineTool(ctx: Context, input: TimelineInput): Promise<
   const store = new SessionStore(ctx.home);
   const session = store.read(input.session);
   const all = store.readTimeline(session.id);
-  let entries = input.kinds && input.kinds.length > 0
-    ? all.filter((entry) => input.kinds?.includes(entry.kind))
-    : all.filter((entry) => !HIDDEN_BY_DEFAULT.has(entry.kind));
   let around: TimelineData["around"] = null;
+  let window = all;
   if (input.around !== undefined) {
     const mark = findMark(all, input.around, session.id);
     const seconds = input.seconds ?? DEFAULT_SECONDS;
     around = { mark: (mark.mark as MarkPayload).n, ms: mark.ms, seconds };
-    entries = entries.filter((entry) => Math.abs(entry.ms - mark.ms) <= seconds * 1000);
+    window = all.filter((entry) => Math.abs(entry.ms - mark.ms) <= seconds * 1000);
   }
+  const chosen = input.kinds !== undefined && input.kinds.length > 0;
+  const entries = chosen
+    ? window.filter((entry) => input.kinds?.includes(entry.kind))
+    : window.filter((entry) => !HIDDEN_BY_DEFAULT.has(entry.kind) && !isSystemChatter(entry));
+  const chatter = chosen ? 0 : window.filter(isSystemChatter).length;
   const dir = store.dir(session.id);
   const lines = [...header(session, all, ctx), ""];
   if (around) lines.push(`Around mark ${around.mark}, ±${around.seconds} s:`);
   lines.push(...entries.map((entry) => formatEntry(entry, dir)));
   if (entries.length === 0) lines.push("(nothing recorded yet)");
+  if (chatter > 0) lines.push(`(${plural(chatter, "system log line")} below error level left out; kinds: ["log"] shows every log line)`);
   return {
     summary: lines.join("\n"),
     data: {

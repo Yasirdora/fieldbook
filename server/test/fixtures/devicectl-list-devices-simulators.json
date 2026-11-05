@@ -1,0 +1,43 @@
+{
+  "info": { "arguments": ["devicectl", "list", "devices", "--json-output", "out.json"], "commandType": "devicectl.list.devices", "outcome": "success", "version": "651.32" },
+  "result": {
+    "devices": [
+      {
+        "identifier": "00000000-0000-4000-8000-0000000000C1",
+        "properties": {
+          "hardware": { "udid": "00000000-0000-4000-8000-0000000000D1", "productType": "iPhone13,3", "platform": "iOS", "marketingName": "iPhone 12 Pro", "reality": "physical" },
+          "software": { "osVersionNumber": { "stringValue": "27.0.1" } },
+          "connection": { "transportType": "wired", "pairingState": "paired" },
+          "state": { "name": "Test iPhone", "bootState": "booted" }
+        },
+        "hardwareProperties": { "udid": "00000000-0000-4000-8000-0000000000D1", "productType": "iPhone13,3", "platform": "iOS", "marketingName": "iPhone 12 Pro", "reality": "physical" },
+        "deviceProperties": { "name": "Test iPhone", "osVersionNumber": "27.0.1", "bootState": "booted" },
+        "connectionProperties": { "transportType": "wired", "pairingState": "paired", "tunnelState": "connected" }
+      },
+      {
+        "identifier": "00000000-0000-4000-8000-0000000000C2",
+        "properties": {
+          "hardware": { "udid": "00000000-0000-4000-8000-0000000000D2", "productType": "iPhone18,1", "platform": "iOS", "marketingName": "iPhone 17 Pro", "reality": "simulated" },
+          "software": { "osVersionNumber": { "stringValue": "26.5" } },
+          "connection": { "pairingState": "paired" },
+          "state": { "name": "Test Simulator iPhone", "bootState": "shutdown" }
+        },
+        "hardwareProperties": { "udid": "00000000-0000-4000-8000-0000000000D2", "productType": "iPhone18,1", "platform": "iOS", "marketingName": "iPhone 17 Pro", "reality": "simulated" },
+        "deviceProperties": { "name": "Test Simulator iPhone", "osVersionNumber": "26.5", "bootState": "shutdown" },
+        "connectionProperties": { "pairingState": "paired" }
+      },
+      {
+        "identifier": "00000000-0000-4000-8000-0000000000C3",
+        "properties": {
+          "hardware": { "udid": "00000000-0000-4000-8000-0000000000D3", "productType": "iPad16,3", "platform": "iOS", "marketingName": "iPad Pro", "reality": "simulated" },
+          "software": { "osVersionNumber": { "stringValue": "26.5" } },
+          "connection": { "pairingState": "paired" },
+          "state": { "name": "Test Simulator iPad", "bootState": "booted" }
+        },
+        "hardwareProperties": { "udid": "00000000-0000-4000-8000-0000000000D3", "productType": "iPad16,3", "platform": "iOS", "marketingName": "iPad Pro", "reality": "simulated" },
+        "deviceProperties": { "name": "Test Simulator iPad", "osVersionNumber": "26.5", "bootState": "booted" },
+        "connectionProperties": { "pairingState": "paired" }
+      }
+    ]
+  }
+}
