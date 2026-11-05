@@ -12,6 +12,12 @@ final class TestTools {
     /// How many megabytes the memory blocks hold right now.
     private(set) var keptMegabytes = 0
 
+    /// How often the main thread was frozen, so each tap shows an answer once the freeze ends.
+    private(set) var freezes = 0
+
+    /// How many errors were written to the log, so each tap shows an answer.
+    private(set) var loggedErrors = 0
+
     @ObservationIgnored private var keptBlocks: [Data] = []
 
     private let logger = Logger(
@@ -22,6 +28,7 @@ final class TestTools {
     /// Blocks the main thread for 400 ms. The app does not answer during this time.
     func freezeMainThread() {
         Thread.sleep(forTimeInterval: 0.4)
+        freezes += 1
     }
 
     /// Adds one more 50 MB block and keeps it. Every byte is written,
@@ -43,6 +50,7 @@ final class TestTools {
     /// Writes one error to the unified log. The message is invented.
     func logError() {
         logger.error("Could not save the garden plan: the shelf for seeds is full (test error 318).")
+        loggedErrors += 1
     }
 
     #if DEBUG

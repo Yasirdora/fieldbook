@@ -46,10 +46,10 @@ The first screen is the note list. Below the notes is a **Tests** section with t
 | Pin / Unpin button | `pinButton` | The badge comes and goes; `pinnedCount` in the state changes. |
 | Note title and text | `noteTitle`, `noteBody` | Text is redacted (length and hash) unless the app runs with `-FieldbookText full`. |
 | **Show a sheet** | `showSheetButton` | A snapshot sees a sheet on top. Inside: `sheetMessage`, `sheetDoneButton`. `sheetShown` is `true` in the state. |
-| **Freeze 400 ms** | `freezeButton` | Blocks the main thread for 400 ms. Expect one `hang` event of about 400 ms (the threshold is 250 ms). |
+| **Freeze 400 ms** | `freezeButton` | Blocks the main thread for 400 ms. Expect one `hang` event of about 400 ms (the threshold is 250 ms). The button stays pressed while the app is frozen; then `freezeCountLabel` (Freezes) goes up by one. |
 | **Use 50 MB** | `useMemoryButton` | Each tap **adds** 50 MB more and keeps it. Every byte is written, so it counts. Expect `memory` events where `footprint` and `peak` go up by about 50 MB per tap. |
 | **Free memory** | `freeMemoryButton` | Lets go of all the kept memory. `footprint` goes down; `peak` stays. `keptMemoryLabel` shows how much is kept. |
-| **Log an error** | `logErrorButton` | Writes one `os.Logger` error: subsystem = bundle id, category `demo`, message `Could not save the garden plan: the shelf for seeds is full (test error 318).` Expect one `log` event with level `error`. |
+| **Log an error** | `logErrorButton` | Writes one `os.Logger` error: subsystem = bundle id, category `demo`, message `Could not save the garden plan: the shelf for seeds is full (test error 318).` Expect one `log` event with level `error`. Nothing else happens on screen except `loggedErrorsLabel` (Errors logged) going up by one. |
 | **Crash** (Debug only) | `crashButton` | Calls `fatalError`. The system writes a crash report, and the Mac picks it up. Start the app **without** the debugger, or the debugger catches the crash and no report is written. |
 
 ## The app's state

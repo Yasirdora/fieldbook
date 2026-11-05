@@ -62,6 +62,9 @@ struct TestSection: View {
             }
             .accessibilityIdentifier("freezeButton")
 
+            LabeledContent("Freezes", value: "\(tools.freezes)")
+                .accessibilityIdentifier("freezeCountLabel")
+
             Button("Use 50 MB", systemImage: "memorychip") {
                 tools.useMemory()
             }
@@ -80,6 +83,9 @@ struct TestSection: View {
                 tools.logError()
             }
             .accessibilityIdentifier("logErrorButton")
+
+            LabeledContent("Errors logged", value: "\(tools.loggedErrors)")
+                .accessibilityIdentifier("loggedErrorsLabel")
 
             #if DEBUG
             Button(role: .destructive) {
