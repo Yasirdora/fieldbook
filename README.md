@@ -105,6 +105,10 @@ Sessions are stored in `$FIELDBOOK_HOME/sessions/<id>/` (default `~/Library/Appl
 Every value carries an evidence label: **measured**, **captured** (a real screenshot), **rendered**
 (drawn by the app), **reported** (the app's own words) or **missing** (with the reason).
 
+## Disclaimer
+
+This software is provided "as is", without warranty of any kind, express or implied. The author and contributors assume no responsibility or liability for any errors, issues, data loss, or consequences resulting from its use. Users are solely responsible for evaluating, testing, and verifying any operations or changes made with this tool.
+
 ## Licence
 
 MIT. See [LICENSE](LICENSE).
