@@ -57,7 +57,7 @@ if [ ! -f "$binary" ]; then
   exit 2
 fi
 
-echo "Checking Release build: $app"
+echo "Checking build: $app"
 echo "Binary: $binary"
 
 failures=0
@@ -125,7 +125,7 @@ else
 fi
 
 if [ "$failures" -gt 0 ]; then
-  echo "NOT clean: $failures check(s) found Fieldbook in this Release build."
+  echo "NOT clean: $failures check(s) found Fieldbook in this build."
   exit 1
 fi
 echo "Clean: no part of Fieldbook found."

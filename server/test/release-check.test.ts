@@ -75,6 +75,10 @@ test("the word Fieldbook in the binary's strings fails", () => {
   const { code, output } = check(iosApp(fakeBinary("Sparrowpad", "FieldbookKit.Probe")));
   assert.equal(code, 1);
   assert.match(output, /✗ "Fieldbook" found in: Sparrowpad/);
+  // The script cannot tell a Debug build from a Release one, so it does not name the configuration
+  // (a Debug control build was reported as "this Release build").
+  assert.match(output, /NOT clean: \d+ check\(s\) found Fieldbook in this build\./);
+  assert.doesNotMatch(output, /Release/);
 });
 
 test("the fieldbook. notification prefix fails on its own", () => {

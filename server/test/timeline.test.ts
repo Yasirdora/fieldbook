@@ -2,6 +2,9 @@
  * timeline: a concise text summary of session events, with logs around a mark.
  */
 import assert from "node:assert/strict";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import test from "node:test";
 import { sessionStart } from "../src/tools/session.ts";
 import { timelineTool } from "../src/tools/timeline.ts";
@@ -89,13 +92,98 @@ test("system log lines below error level are left out by default, and counted", 
   assert.doesNotMatch(every.summary, /left out/);
 });
 
+test("a repeated system error shows once with its count; the app's own lines all stay", async () => {
+  // Measured on an iPhone: "[API] cannot add handler to 0 from 0 - dropping" 104 times in 17 minutes.
+  const s = setup();
+  const kit = kitOn(s.world, s.clock).launch();
+  const { data } = await sessionStart(s.ctx, { target: "phone", device: PHONE_ID, bundleId: BUNDLE, label: "loud" });
+  s.clock.advance(1_000);
+  kit.log("error", "cannot add handler to 0 from 0 - dropping", "API", "com.apple.UIKit");
+  kit.log("error", "Could not save the garden plan", "demo");
+  s.clock.advance(1_000);
+  kit.log("error", "cannot add handler to 0 from 0 - dropping", "API", "com.apple.UIKit");
+  kit.log("fault", "Invalid UIScreen coordinate space conversion", "UIScreen", "com.apple.UIKit");
+  kit.log("error", "Could not save the garden plan", "demo");
+  s.clock.advance(1_200);
+  kit.log("error", "cannot add handler to 0 from 0 - dropping", "API", "com.apple.UIKit");
+  await s.ctx.recorders.get(data.session!.id)?.pullOnce();
+
+  const { summary, data: shown } = await timelineTool(s.ctx, { session: data.session!.id });
+  const lines = summary.split("\n");
+  assert.equal(lines.filter((line) => line.includes("Could not save the garden plan")).length, 2, "the app's own lines are never folded");
+  const handler = lines.filter((line) => line.includes("cannot add handler"));
+  assert.deepEqual(handler, ["00:01.0 log error [API] cannot add handler to 0 from 0 - dropping (×3, last at 00:03.2)"]);
+  assert.ok(lines.includes("00:02.0 log fault [UIScreen] Invalid UIScreen coordinate space conversion"), summary);
+  assert.ok(lines.includes("(2 repeats of system error lines folded into their first line; kinds: [\"log\"] shows every log line)"), summary);
+  assert.equal(shown.entries.filter((entry) => entry.kind === "log").length, 4);
+
+  const every = await timelineTool(s.ctx, { session: data.session!.id, kinds: ["log"] });
+  assert.equal(every.data.entries.length, 6);
+  assert.doesNotMatch(every.summary, /×3|folded/);
+});
+
+const EMPTY_WORDS = /^accessibility tree empty \(missing: SwiftUI builds it only while VoiceOver or Accessibility Inspector is attached\)$/;
+
+/** An ax.json with the given windows; each window root has `children` empty elements below it. */
+function axFile(dir: string, windows: { type: string; children: number }[]): string {
+  const frame = { x: 0, y: 0, w: 390, h: 844 };
+  const node = (type: string, children: unknown[]) => ({ source: "uikit.view", type, frame, traits: [], children });
+  const tree = {
+    formatVersion: 1,
+    limit: 5000,
+    nodes: windows.reduce((sum, window) => sum + 1 + window.children, 0),
+    truncated: false,
+    windows: windows.map((window, index) => ({
+      index,
+      number: null,
+      isKey: index === 0,
+      title: null,
+      frame,
+      root: node(window.type, Array.from({ length: window.children }, () => node("AccessibilityNode", []))),
+    })),
+  };
+  const file = path.join(dir, `ax-${windows.map((window) => window.children).join("-")}.json`);
+  fs.writeFileSync(file, JSON.stringify(tree));
+  return file;
+}
+
 test("an accessibility tree that is only the window reads as missing, never as measured", () => {
   assert.equal(accessibilityText(32, " (measured)"), "accessibility 32 nodes (measured)");
   for (const nodes of [0, 1]) {
     const words = accessibilityText(nodes, " (measured)");
-    assert.match(words, /^accessibility tree empty \(missing: SwiftUI builds it only while VoiceOver or Accessibility Inspector is attached\)$/);
+    assert.match(words, EMPTY_WORDS);
     assert.doesNotMatch(words, /measured/);
   }
+});
+
+test("bare windows read as an empty accessibility tree, however many windows there are", () => {
+  // Measured on an iPhone: the app's window and the keyboard's UITextEffectsWindow, both bare (2 nodes).
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "fieldbook-ax-"));
+  const bare = axFile(dir, [{ type: "UIWindow", children: 0 }, { type: "UITextEffectsWindow", children: 0 }]);
+  assert.match(accessibilityText(2, " (measured)", bare), EMPTY_WORDS);
+  const filled = axFile(dir, [{ type: "UIWindow", children: 1 }, { type: "UITextEffectsWindow", children: 0 }]);
+  assert.equal(accessibilityText(3, " (measured)", filled), "accessibility 3 nodes (measured)");
+  assert.equal(accessibilityText(2, "", path.join(dir, "not-there.json")), "accessibility 2 nodes", "an unreadable file falls back to the count");
+});
+
+test("a mark whose ax.json has only bare windows reads as empty in the mark answer and the timeline", async () => {
+  const s = setup();
+  const bareWindows = (_tree: unknown, ax: any) => {
+    const [first] = ax.windows;
+    if (!first) throw new Error("the fixture ax.json has no window");
+    first.root.children = [];
+    ax.windows = [first, { ...first, index: 1, isKey: false, root: { ...first.root, type: "UITextEffectsWindow", children: [] } }];
+    ax.nodes = 2;
+  };
+  const kit = kitOn(s.world, s.clock, PHONE_ID, undefined, bareWindows).launch();
+  const { data } = await sessionStart(s.ctx, { target: "phone", device: PHONE_ID, bundleId: BUNDLE, label: "bare" });
+  kit.shake();
+  await s.ctx.recorders.get(data.session!.id)?.pullOnce();
+  const { summary } = await timelineTool(s.ctx, { session: data.session!.id });
+  const markLine = summary.split("\n").find((line) => line.includes("mark 1 (shake)")) ?? "";
+  assert.match(markLine, /accessibility tree empty \(missing:/, summary);
+  const snapshotLines = summary.split("\n").filter((line) => line.includes(" snapshot "));
+  for (const line of snapshotLines) assert.match(line, /accessibility tree empty/, line);
 });
 
 test("an unknown session or mark gives a clear message", async () => {

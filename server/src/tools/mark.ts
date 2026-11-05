@@ -94,17 +94,18 @@ export async function markTool(ctx: Context, input: { session: string; name?: st
     };
   }
   attachCapture(recorder.dir, recorder.ingestState, command.id);
-  const markFile = readMarkFile(path.join(recorder.dir, filed.dir));
-  const summary = `${capitalized(markTitle(markFile))} is filed in ${filed.dir}: ${markPieces(markFile, shot).join(", ")}.`;
+  const markDir = path.join(recorder.dir, filed.dir);
+  const markFile = readMarkFile(markDir);
+  const summary = `${capitalized(markTitle(markFile))} is filed in ${filed.dir}: ${markPieces(markFile, markDir, shot).join(", ")}.`;
   return { summary, data: { filed: true, commandId: command.id, mark: { n: filed.n, dir: filed.dir }, capture: shot } };
 }
 
-function markPieces(markFile: ReturnType<typeof readMarkFile>, shot: Labeled<string>): string[] {
+function markPieces(markFile: ReturnType<typeof readMarkFile>, markDir: string, shot: Labeled<string>): string[] {
   const snapshot = markFile.snapshot;
   return [
     captureText(shot),
     snapshot ? `tree ${snapshot.nodes ?? "?"} nodes (measured)` : "the snapshot is not copied yet",
-    snapshot && snapshot.axNodes !== null ? accessibilityText(snapshot.axNodes, " (measured)") : undefined,
+    snapshot && snapshot.axNodes !== null ? accessibilityText(snapshot.axNodes, " (measured)", path.join(markDir, "ax.json")) : undefined,
     markFile.parts.state.label === "reported" ? "app state (reported)" : undefined,
     markFile.parts.screenRendered.label === "rendered" ? "rendered screen (rendered)" : undefined,
   ].filter((piece): piece is string => piece !== undefined);
@@ -163,7 +164,7 @@ function snapshotSummary(id: string, folder: string, shot: Labeled<string>, want
   const has = (file: string) => fs.existsSync(path.join(folder, file));
   const parts = [
     has("tree.json") ? `tree ${info.tree?.nodes ?? "?"} nodes (measured)` : undefined,
-    has("ax.json") ? accessibilityText(info.ax?.nodes, " (measured)") : undefined,
+    has("ax.json") ? accessibilityText(info.ax?.nodes, " (measured)", path.join(folder, "ax.json")) : undefined,
     has("state.json") ? "app state (reported)" : undefined,
     has("screen-rendered.png") ? "rendered screen (rendered)" : undefined,
     wantScreen ? (shot.label === "captured" ? "real screen (captured)" : `real screen missing: ${shot.reason}`) : undefined,

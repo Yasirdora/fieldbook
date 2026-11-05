@@ -5,8 +5,11 @@
  *   node scripts/pixel-diff.ts <a.png> <b.png>
  *
  * Used on the Mac to compare a mark's screen-rendered.png (drawn by the app) with its
- * screen-captured.png (taken by the system), for example under Liquid Glass. Reads 8-bit
- * RGB and RGBA PNGs without interlacing (what devicectl, simctl and the kit write).
+ * screen-captured.png (taken by the system), for example under Liquid Glass. Reads 8-bit and
+ * 16-bit RGB and RGBA PNGs without interlacing (what devicectl, simctl and the kit write; devicectl
+ * wrote one iPhone capture as 16-bit RGB). 16-bit samples are compared by their high byte.
+ * Colours are compared as stored, without colour management: a Display P3 capture and an sRGB
+ * rendering of the same screen differ a little in saturated colours.
  * When the sizes differ, b is scaled to a's size (nearest pixel) and the output says so.
  * No dependencies: node:zlib only.
  */
@@ -42,18 +45,18 @@ function paeth(left: number, up: number, upLeft: number): number {
   return pb <= pc ? up : upLeft;
 }
 
-/** Reverses the PNG row filters (none, sub, up, average, paeth) in place. */
-function unfilter(data: Buffer, width: number, height: number, channels: number): Buffer {
-  const stride = width * channels;
+/** Reverses the PNG row filters (none, sub, up, average, paeth). The filters work on bytes, a pixel apart. */
+function unfilter(data: Buffer, width: number, height: number, bytesPerPixel: number): Buffer {
+  const stride = width * bytesPerPixel;
   const out = Buffer.alloc(stride * height);
   for (let y = 0; y < height; y++) {
     const filter = data[y * (stride + 1)] as number;
     const row = y * (stride + 1) + 1;
     for (let i = 0; i < stride; i++) {
       const raw = data[row + i] as number;
-      const left = i >= channels ? (out[y * stride + i - channels] as number) : 0;
+      const left = i >= bytesPerPixel ? (out[y * stride + i - bytesPerPixel] as number) : 0;
       const up = y > 0 ? (out[(y - 1) * stride + i] as number) : 0;
-      const upLeft = y > 0 && i >= channels ? (out[(y - 1) * stride + i - channels] as number) : 0;
+      const upLeft = y > 0 && i >= bytesPerPixel ? (out[(y - 1) * stride + i - bytesPerPixel] as number) : 0;
       const predicted = [0, left, up, (left + up) >> 1, paeth(left, up, upLeft)][filter];
       if (predicted === undefined) throw new Error(`unknown PNG filter ${filter}`);
       out[y * stride + i] = (raw + predicted) & 0xff;
@@ -68,6 +71,7 @@ export function decodePng(file: Buffer): Image {
   let width = 0;
   let height = 0;
   let channels = 0;
+  let bytesPerSample = 1;
   const data: Buffer[] = [];
   while (offset < file.length) {
     const length = file.readUInt32BE(offset);
@@ -77,10 +81,11 @@ export function decodePng(file: Buffer): Image {
       width = body.readUInt32BE(0);
       height = body.readUInt32BE(4);
       const [depth, colorType, , , interlace] = [body[8], body[9], body[10], body[11], body[12]];
-      if (depth !== 8 || interlace !== 0 || (colorType !== 2 && colorType !== 6)) {
-        throw new Error(`only 8-bit RGB or RGBA PNGs without interlacing are read (depth ${depth}, color type ${colorType}, interlace ${interlace})`);
+      if ((depth !== 8 && depth !== 16) || interlace !== 0 || (colorType !== 2 && colorType !== 6)) {
+        throw new Error(`only 8-bit or 16-bit RGB or RGBA PNGs without interlacing are read (depth ${depth}, color type ${colorType}, interlace ${interlace})`);
       }
       channels = colorType === 6 ? 4 : 3;
+      bytesPerSample = depth / 8;
     } else if (type === "IDAT") {
       data.push(body);
     } else if (type === "IEND") {
@@ -88,13 +93,15 @@ export function decodePng(file: Buffer): Image {
     }
     offset += 12 + length;
   }
-  const pixels = unfilter(inflateSync(Buffer.concat(data)), width, height, channels);
+  const pixels = unfilter(inflateSync(Buffer.concat(data)), width, height, channels * bytesPerSample);
+  // A 16-bit sample is big-endian; its first byte is the high byte.
+  const at = (pixel: number, channel: number) => pixels[(pixel * channels + channel) * bytesPerSample] as number;
   const rgba = new Uint8Array(width * height * 4);
   for (let i = 0; i < width * height; i++) {
-    rgba[i * 4] = pixels[i * channels] as number;
-    rgba[i * 4 + 1] = pixels[i * channels + 1] as number;
-    rgba[i * 4 + 2] = pixels[i * channels + 2] as number;
-    rgba[i * 4 + 3] = channels === 4 ? (pixels[i * channels + 3] as number) : 255;
+    rgba[i * 4] = at(i, 0);
+    rgba[i * 4 + 1] = at(i, 1);
+    rgba[i * 4 + 2] = at(i, 2);
+    rgba[i * 4 + 3] = channels === 4 ? at(i, 3) : 255;
   }
   return { width, height, rgba };
 }

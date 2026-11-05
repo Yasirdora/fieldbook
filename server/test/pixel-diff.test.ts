@@ -31,22 +31,27 @@ function chunk(type: string, data: Buffer): Buffer {
   return Buffer.concat([length, body, crc]);
 }
 
-/** A PNG (8-bit RGBA, or RGB when `channels` is 3) where pixel (x, y) has the color `color(x, y)`. Rows use filter `filter`. */
-function png(width: number, height: number, color: (x: number, y: number) => number[], channels = 4, filter = 0): Buffer {
+/**
+ * A PNG (RGBA, or RGB when `channels` is 3) where pixel (x, y) has the color `color(x, y)`. Rows use
+ * filter `filter`. With `depth` 16 each 8-bit value v is written as the 16-bit sample v * 257.
+ */
+function png(width: number, height: number, color: (x: number, y: number) => number[], channels = 4, filter = 0, depth = 8): Buffer {
   const header = Buffer.alloc(13);
   header.writeUInt32BE(width, 0);
   header.writeUInt32BE(height, 4);
-  header[8] = 8;
+  header[8] = depth;
   header[9] = channels === 4 ? 6 : 2;
+  const bytesPerPixel = (channels * depth) / 8;
   const rows: Buffer[] = [];
-  let previous = Buffer.alloc(width * channels);
+  let previous = Buffer.alloc(width * bytesPerPixel);
   for (let y = 0; y < height; y++) {
-    const raw = Buffer.from(Array.from({ length: width }, (_, x) => color(x, y).slice(0, channels)).flat());
+    const samples = Array.from({ length: width }, (_, x) => color(x, y).slice(0, channels)).flat();
+    const raw = Buffer.from(depth === 16 ? samples.flatMap((value) => [value, value]) : samples);
     const line = Buffer.alloc(raw.length);
     for (let i = 0; i < raw.length; i++) {
-      const left = i >= channels ? (raw[i - channels] as number) : 0;
+      const left = i >= bytesPerPixel ? (raw[i - bytesPerPixel] as number) : 0;
       const up = y > 0 ? (previous[i] as number) : 0;
-      const upLeft = y > 0 && i >= channels ? (previous[i - channels] as number) : 0;
+      const upLeft = y > 0 && i >= bytesPerPixel ? (previous[i - bytesPerPixel] as number) : 0;
       const predicted = [0, left, up, (left + up) >> 1, paeth(left, up, upLeft)][filter] as number;
       line[i] = ((raw[i] as number) - predicted) & 0xff;
     }
@@ -77,6 +82,16 @@ test("decodes 8-bit RGBA and RGB with all five row filters", () => {
     assert.equal(image.height, 4);
     assert.deepEqual([...image.rgba.subarray((2 * 5 + 3) * 4, (2 * 5 + 3) * 4 + 4)], [30, 20, 128, 255], `channels ${channels} filter ${filter}`);
   }
+});
+
+test("decodes 16-bit RGB and RGBA with all five row filters", () => {
+  // Measured on an iPhone: `devicectl device capture screenshot` wrote one of two captures as 16-bit RGB.
+  for (const [channels, filter] of [[3, 0], [3, 1], [3, 2], [3, 3], [3, 4], [4, 0], [4, 4]]) {
+    const image = decodePng(png(5, 4, gradient, channels, filter, 16));
+    assert.deepEqual([...image.rgba.subarray((2 * 5 + 3) * 4, (2 * 5 + 3) * 4 + 4)], [30, 20, 128, 255], `channels ${channels} filter ${filter}`);
+  }
+  const same = comparePngs(png(5, 4, gradient, 3, 4, 16), png(5, 4, gradient, 4, 0));
+  assert.equal(same.changedShare, 0, "a 16-bit capture and an 8-bit rendering of the same colors do not differ");
 });
 
 test("the same image: no pixel changed", () => {

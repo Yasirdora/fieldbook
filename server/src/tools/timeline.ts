@@ -1,14 +1,15 @@
 /**
  * timeline: a concise text summary of session events. `around` (a mark number or name) narrows it to
  * ±`seconds` (default 10) around that mark. `kinds` chooses what to show; by default
- * everything except memory samples, command reads, and system log lines below error level.
+ * everything except memory samples, command reads, and system log lines below error level,
+ * with each repeated system error message shown once with its count.
  */
 import type { Context } from "../context.ts";
 import { describe } from "../labels.ts";
 import { sessionMetrics } from "../session/metrics.ts";
 import { SessionStore, type SessionFile, type TimelineEntry } from "../session/store.ts";
 import { formatEntry, markTitle } from "../session/text.ts";
-import { formatBytes, plural, ToolError, type ToolAnswer } from "./common.ts";
+import { formatBytes, formatOffset, plural, ToolError, type ToolAnswer } from "./common.ts";
 
 export interface TimelineInput {
   session: string;
@@ -26,16 +27,66 @@ export interface TimelineData {
 const HIDDEN_BY_DEFAULT = new Set(["memory", "command"]);
 const DEFAULT_SECONDS = 10;
 
+interface LogPayload {
+  level?: unknown;
+  subsystem?: unknown;
+  category?: unknown;
+  message?: unknown;
+}
+
+function isSystemLog(entry: TimelineEntry): boolean {
+  if (entry.kind !== "log") return false;
+  const subsystem = (entry.log as LogPayload).subsystem;
+  return typeof subsystem === "string" && subsystem.startsWith("com.apple.");
+}
+
+function isErrorLevel(entry: TimelineEntry): boolean {
+  const level = (entry.log as LogPayload).level;
+  return level === "error" || level === "fault";
+}
+
 /**
  * Apple's frameworks log hundreds of notice and info lines a minute inside the app's process
  * (measured: 435 of 449 log lines in a two-minute session). By default the timeline keeps the
- * app's own log lines and every error or fault; `kinds: ["log"]` shows them all.
+ * app's own log lines and Apple's errors and faults; `kinds: ["log"]` shows them all.
  */
 function isSystemChatter(entry: TimelineEntry): boolean {
-  if (entry.kind !== "log") return false;
-  const log = entry.log as { level?: unknown; subsystem?: unknown };
-  if (log.level === "error" || log.level === "fault") return false;
-  return typeof log.subsystem === "string" && log.subsystem.startsWith("com.apple.");
+  return isSystemLog(entry) && !isErrorLevel(entry);
+}
+
+/** How often a shown system error line was logged in the view, and when last. */
+interface Repeats {
+  count: number;
+  lastMs: number;
+}
+
+/**
+ * On a device Apple's frameworks also log errors by the hundred, mostly the same few
+ * messages (measured on an iPhone: 236 error and fault lines in 24 messages over 17 minutes, one
+ * of them 104 times). Each system error message shows once, at its first time, with its count; the
+ * app's own lines are never folded.
+ */
+function foldSystemErrors(entries: TimelineEntry[]): { entries: TimelineEntry[]; repeats: Map<TimelineEntry, Repeats>; folded: number } {
+  const first = new Map<string, TimelineEntry>();
+  const repeats = new Map<TimelineEntry, Repeats>();
+  const kept: TimelineEntry[] = [];
+  for (const entry of entries) {
+    if (!isSystemLog(entry) || !isErrorLevel(entry)) {
+      kept.push(entry);
+      continue;
+    }
+    const log = entry.log as LogPayload;
+    const key = JSON.stringify([log.level, log.subsystem, log.category, log.message]);
+    const shown = first.get(key);
+    if (shown) {
+      const seen = repeats.get(shown) ?? { count: 1, lastMs: shown.ms };
+      repeats.set(shown, { count: seen.count + 1, lastMs: entry.ms });
+      continue;
+    }
+    first.set(key, entry);
+    kept.push(entry);
+  }
+  return { entries: kept, repeats, folded: entries.length - kept.length };
 }
 
 interface MarkPayload {
@@ -83,15 +134,23 @@ export async function timelineTool(ctx: Context, input: TimelineInput): Promise<
     window = all.filter((entry) => Math.abs(entry.ms - mark.ms) <= seconds * 1000);
   }
   const chosen = input.kinds !== undefined && input.kinds.length > 0;
-  const entries = chosen
-    ? window.filter((entry) => input.kinds?.includes(entry.kind))
-    : window.filter((entry) => !HIDDEN_BY_DEFAULT.has(entry.kind) && !isSystemChatter(entry));
+  const view = chosen
+    ? { entries: window.filter((entry) => input.kinds?.includes(entry.kind)), repeats: new Map<TimelineEntry, Repeats>(), folded: 0 }
+    : foldSystemErrors(window.filter((entry) => !HIDDEN_BY_DEFAULT.has(entry.kind) && !isSystemChatter(entry)));
+  const { entries, repeats, folded } = view;
   const chatter = chosen ? 0 : window.filter(isSystemChatter).length;
   const dir = store.dir(session.id);
   const lines = [...header(session, all, ctx), ""];
   if (around) lines.push(`Around mark ${around.mark}, ±${around.seconds} s:`);
-  lines.push(...entries.map((entry) => formatEntry(entry, dir)));
+  lines.push(
+    ...entries.map((entry) => {
+      const repeated = repeats.get(entry);
+      const line = formatEntry(entry, dir);
+      return repeated ? `${line} (×${repeated.count}, last at ${formatOffset(repeated.lastMs)})` : line;
+    }),
+  );
   if (entries.length === 0) lines.push("(nothing recorded yet)");
+  if (folded > 0) lines.push(`(${plural(folded, "repeat")} of system error lines folded into their first line; kinds: ["log"] shows every log line)`);
   if (chatter > 0) lines.push(`(${plural(chatter, "system log line")} below error level left out; kinds: ["log"] shows every log line)`);
   return {
     summary: lines.join("\n"),
