@@ -3,11 +3,11 @@
 Every red and green run, oldest first. "Red" means the tests failed; the last column says why.
 Initial server test runs, 4 November 2026.
 
-Swift note: this machine has **no Swift toolchain**. `swift --version` → `command not found`.
-The download host `download.swift.org` is blocked by the network policy here (HTTP 403 on CONNECT),
-Ubuntu 24.04 has no `swiftlang` package, and the Docker image mirror was refused too. So no Swift
-Swift tests are documented in docs/TESTING-ON-MAC.md.
-The only Swift logic checked here is SHA-256: a line-by-line JavaScript port of
+Swift note: the first build ran on a Linux machine with **no Swift toolchain**. `swift --version` →
+`command not found`. The download host `download.swift.org` was blocked by the network policy there
+(HTTP 403 on CONNECT), Ubuntu 24.04 has no `swiftlang` package, and the Docker image mirror was refused
+too. So no Swift ran there; the Swift tests ran later on the Mac (see "On the Mac, 4 November 2026").
+The only Swift logic checked on Linux was SHA-256: a line-by-line JavaScript port of
 `kit/Sources/FieldbookCore/SHA256.swift` matched `node:crypto` on 8 of 8 inputs, and its 64 round
 constants match.
 
@@ -124,3 +124,26 @@ that SwiftUI identifiers were never found, and that system log lines filled the 
 | 56 | same, app accessibility off | — | green | The mark reads "accessibility tree empty (missing: …)" instead of "accessibility 1 nodes (measured)". A stop without a crash returns at once and says it looked when the session stopped. |
 | 57 | `npm test` after the crash time moved to `captureTime` | 140 | green: 140 pass | `tsc` clean. |
 
+
+## Phone test, 5 November 2026
+
+The demo's Debug build on an iPhone 12 Pro (iOS 27.0.1), installed over Wi-Fi with
+`devicectl device install app`, steps 12–16 and 18 of docs/TESTING-ON-MAC.md, with the tester holding
+the phone. It found eight problems (F12–F19); F12–F18 are fixed below, F19 is open (docs/DESIGN.md, section 5).
+
+| # | Command | Tests | Result | Why it was red / note |
+|---|---|---|---|---|
+| 58 | `devices`, `doctor`, and the JSON shapes by hand (step 12) | — | green | doctor 5 of 5: tunnel, a real screenshot, container access, Darwin round trip 1.3 s. `copy from` put `hello.json` directly in the destination; a command copied to the inbox was answered within 3 s; lock, apps and files JSON as the parsers expect. |
+| 59 | a phone session (step 14): Freeze, Use 50 MB, Log an error, three shakes with a note, Mac marks "detail" and "with voiceover", Crash, `session_stop` | — | green, five findings | No permission prompt for shaking. Snapshots 90–131 ms. With VoiceOver on: 33 nodes and every identifier; `find id:noteRow-n3` → 1 match. The crash was picked up and dated from the report's capture time. F12: bare windows read "accessibility 2 nodes (measured)". F13: 236 system error lines in 24 messages buried the app's 13. F14: Freeze and Log an error gave no visible answer (the tester tapped Freeze 26 times). F16: step 14's `mark {"name": …}` lacks the session. F17: step 12 printed `.result.apps[0]`, any app on the phone. |
+| 60 | MetricKit session after the crash (step 16) | — | open | No payload within 1 min 42 s. |
+| 61 | Release check (step 18) | — | green, one finding | Both Release builds clean; the Debug control not clean, exit 1. F15: the Debug build was called "this Release build". |
+| 62 | `scripts/pixel-diff.ts` on the phone marks (step 8) | — | red, one finding | F18: one capture was 16-bit Display P3 and could not be read. The other: 17.2 % of pixels differ (2.1 % by more than 16/255). |
+| 63 | the new accessibility tests with the old `text.ts` and `mark.ts` | 8 | red: 6 pass, 2 fail | F12. Honest note: the run before had a mistake in the new test itself (wrong `kitOn` arguments). |
+| 64 | the new fold test with the old `timeline.ts` | 9 | red: 8 pass, 1 fail | F13: the repeated system error showed three times. |
+| 65 | `release-check.test.ts` with the old script | 11 | red: 10 pass, 1 fail | F15. |
+| 66 | `pixel-diff.test.ts` with the old script | 6 | red: 5 pass, 1 fail | F18: "only 8-bit RGB or RGBA PNGs … (depth 16, color type 2…)". |
+| 67 | `npm test`, `npm run typecheck` | 144 | green: 144 pass | `tsc` clean. |
+| 68 | `swift test --package-path kit` | 37 | green: 37 pass | |
+| 69 | demo Debug builds (iOS Simulator, macOS); the demo on a scratch simulator | — | green | F14: one tap on Freeze → "Freezes 1"; one tap on Log an error → "Errors logged 1". |
+| 70 | `timeline` on the recorded phone session, with the new code | — | green | 265 lines (154 KB) → 102 lines (48 KB); 212 repeats folded into their first line; marks 1–4 read "accessibility tree empty", the VoiceOver mark "33 nodes"; all 13 of the app's own lines kept. |
+| 71 | `scripts/pixel-diff.ts` on the 16-bit capture, with the new script | — | green, one finding | It reads now. F19: 93.5 % differ, because the app's snapshot and the capture were 1.1 s apart and show different scroll positions. Open. |

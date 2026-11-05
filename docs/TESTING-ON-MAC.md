@@ -224,7 +224,8 @@ jq '.ms' "$S"/marks/*/snapshot.json "$S"/snapshots/*/snapshot.json
 ```
 
 Then start a new session (`relaunch: false`), send the app to the background (Simulator → Device →
-Home) for 30 s, bring it back, wait 10 s, `session_stop`, and `timeline {"kinds": ["hang", "lifecycle"]}`.
+Home) for 30 s, bring it back, wait 10 s, `session_stop {"session": "<id>"}`, and
+`timeline {"session": "<id>", "kinds": ["hang", "lifecycle"]}`.
 **Look for:** the CPU numbers while idle; the snapshot times; any `hang` right after `lifecycle active`.
 **Pass:** idle CPU on average below 1 %; no hang reported within 2 s after returning from the
 background; snapshot times recorded (target: under 150 ms on a normal screen — measure it again on
@@ -269,7 +270,7 @@ xcrun devicectl device copy to --device "$PHONE" --domain-type appDataContainer 
   --domain-identifier com.example.sparrowpad --source /tmp/999001-ping.json \
   --destination "Library/Application Support/Fieldbook/inbox/999001-ping.json"
 xcrun devicectl device info lockState --device "$PHONE" --json-output /tmp/lock.json && jq .result /tmp/lock.json
-xcrun devicectl device info apps --device "$PHONE" --require-container-access --json-output /tmp/apps.json && jq '.result.apps[0]' /tmp/apps.json
+xcrun devicectl device info apps --device "$PHONE" --require-container-access --json-output /tmp/apps.json && jq '.result.apps[] | select(.bundleIdentifier == "com.example.sparrowpad")' /tmp/apps.json
 xcrun devicectl device info files --device "$PHONE" --domain-type systemCrashLogs --json-output /tmp/files.json && jq '.result | keys' /tmp/files.json
 xcrun devicectl list devices --json-output /tmp/devices.json && jq '.result.devices[] | {identifier, state: .properties.state}' /tmp/devices.json
 ```
@@ -293,16 +294,17 @@ The doctor call in step 12 already ran it. **Look for:** `phone "<name>": notifi
 ## 14. A phone session, with a shake (G7)
 
 `session_start {"target": "phone", "bundleId": "com.example.sparrowpad", "label": "phone first run", "relaunch": true}`.
-On the phone: **Freeze 400 ms**, **Use 50 MB**, **Log an error**, open a pinned note, then **shake the
-phone**. The sheet "What did you see?" appears; type `badge looks right`, Save. Then
-`mark {"name": "detail"}` from the Mac. `session_stop`, `timeline`.
+On the phone: **Freeze 400 ms**, **Use 50 MB**, **Log an error** (each answers with a count row), open
+a pinned note, then **shake the phone**. The sheet "What did you see?" appears; type `badge looks right`,
+Save. Then `mark {"session": "<id>", "name": "detail"}` from the Mac. Then turn on VoiceOver (or attach
+Accessibility Inspector to the app), take `mark {"session": "<id>", "name": "with voiceover"}`, run
+step 7's `find` on that mark, and turn VoiceOver off again. Then `session_stop {"session": "<id>"}` and
+`timeline {"session": "<id>"}`.
 
 **Look for:** did iOS ask for any permission when shaking? A `mark … (shake)` with
 `note on mark …: "badge looks right"`; `mark … "detail" (screen captured …)` with a capture taken by
 `devicectl capture screenshot`. Then run steps 8 and 10 on this session, and the snapshot time:
 `jq .ms "$FIELDBOOK_HOME"/sessions/<id>/marks/*/snapshot.json`.
-Then attach Accessibility Inspector to the app (or turn on VoiceOver), take `mark {"name": "with inspector"}`,
-and run step 7's `find` on that mark.
 **Pass:** no permission prompt (**G7**); both marks filed; snapshot time under 150 ms; the accessibility
 count of each mark is recorded (empty without an assistive technology, elements with one).
 **Fallback for G7:** if a prompt appears, the user allows it once; ⌃⌥⌘M is the Mac's way, and the
@@ -334,7 +336,8 @@ must show in `crashes/` of the session that saw it (systemCrashLogs) — that pa
 ## 17. Compare two sessions and write evidence
 
 Record two sessions on the phone (or the scratch simulator), each with `relaunch: true` so both have
-a launch time. "before": tap **Freeze 400 ms** once, open "Bike repair steps", `mark {"name": "detail"}`.
+a launch time. "before": tap **Freeze 400 ms** once, open "Bike repair steps",
+`mark {"session": "<id>", "name": "detail"}`.
 "after": the same steps, but **Freeze 400 ms** three times, and **Use 50 MB** three times before the
 mark. Then:
 

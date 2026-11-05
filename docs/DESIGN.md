@@ -54,13 +54,12 @@ Every claim below carries one tag:
 2. **Dependencies.** Runtime: `@modelcontextprotocol/sdk` 1.32.2 and `zod` 4.6.7, pinned exactly.
    [measured: `npm view @modelcontextprotocol/sdk version` → `1.32.2`; its `peerDependencies` list
    `zod: ^3.25 || ^4.0`] For checking only: `typescript` 6.0.3 and `@types/node` 22.20.5 as exact
-   dev dependencies. *Note:* the brief allows only the SDK and zod. The two dev
-   dependencies never run with the server; they only power `npm run typecheck`. Delete them from
-   `server/package.json` if the rule is meant strictly — everything still runs and all tests still pass.
+   dev dependencies. The two dev dependencies never run with the server; they only power
+   `npm run typecheck`. The server itself needs nothing but the SDK and zod.
 3. **The MCP server API.** `McpServer.registerTool(name, {title, description, inputSchema}, handler)`
    with zod shapes, and `StdioServerTransport`. [read: `server/node_modules/@modelcontextprotocol/sdk/README.md`
    and `dist/esm/server/mcp.d.ts` of version 1.32.2] Tested end to end with the SDK's
-   `InMemoryTransport` and by starting `node src/main.ts` over stdio. [measured: `npm test` → 131 pass]
+   `InMemoryTransport` and by starting `node src/main.ts` over stdio. [measured: `npm test` → 144 pass]
 4. **Each answer is a summary, then JSON.** Two text blocks. A mistake the caller can fix (unknown
    session, refused command) is an MCP error with a plain sentence. (`server/src/mcp.ts`)
 5. **Evidence labels on every value:** measured, captured, rendered, reported, missing — never
@@ -168,21 +167,36 @@ Every claim below carries one tag:
     and false hangs; `task_vm_info` is a kernel header with no page in Apple's online docs — the doc
     request returned 404]
 
-## 3. What was measured here, and what was not
+## 3. What was measured, and where
 
-Measured here (Linux): everything in `server/` (131 tests, `tsc` clean), the release-check script's logic
-on fake `.app` folders, and the SHA-256 logic (through a JavaScript port).
+| When | Where | What |
+|---|---|---|
+| 4 Nov 2026 | Linux (the first build; no Swift toolchain there) | `server/` tests, the release-check logic on fake `.app` folders, the SHA-256 logic through a JavaScript port. |
+| 4 Nov 2026 | Mac (macOS 27, Xcode 27.2) | First compile of the Swift; kit tests (`swift test`, 37); server tests; demo builds for iOS and macOS. |
+| 4–5 Nov 2026 | Simulator (iPhone 17 Pro, iOS 26.5) | TESTING-ON-MAC steps 4, 5 and 7–11. |
+| 5 Nov 2026 | iPhone 12 Pro (iOS 27.0.1), over Wi-Fi | Steps 12–16 and 18 (step 18 builds on the Mac). |
 
-**Not measured here, and why:**
+Every run is in docs/TEST-LOG.md. **Not measured yet:** step 6 (a session with the Mac app: G9, G15)
+and step 17 (compare and evidence on two real recordings; the logic is tested with fixtures).
 
-- **No Swift code was compiled or run.** There is no Swift toolchain on this machine: `swift --version`
-  → `command not found`; `download.swift.org` → HTTP 403 from the network policy; Ubuntu 24.04 has
-  no `swiftlang` package; the Swift Docker image could not be pulled (rate limit, then refused).
-  [measured] The Swift tests are written.
-- **No device, simulator or Mac was used.** All devicectl and simctl behaviour in the tests comes from
-  fixtures built from device tests, with invented ids and names.
-- **The JSON shapes of `info apps`, `info lockState` and `info files`** are not in device documentation.
-  The parsers try several likely keys and answer *missing* when none fits [guess G11].
+What the guesses in section 4 turned out to be:
+
+| # | Result |
+|---|---|
+| G1 | Right. The app answered the Darwin notification after 0.5 s (simulator) and 1.3 s (phone). |
+| G2 | Right. `copy from` put `hello.json` directly in the destination; a command copied to the inbox was answered within 3 s. |
+| G3 | Measured (simulator and phone): the view tree has only UIKit hosting views for SwiftUI. SwiftUI builds its accessibility elements only while an assistive technology is attached: bare windows without one (1 on the simulator, 2 on the phone), 32 and 33 nodes with one, and every identifier then found. |
+| G4 | Simulator: 2.2 % of pixels differ (1.2 % by more than 16/255). Phone: 17.2 % (2.1 %); the phone's capture can be 16-bit Display P3 while the rendering is 8-bit sRGB. See section 5 for a mark whose two pictures were a second apart. |
+| G5 | Right on both: the app's `Logger` errors arrive in the timeline. |
+| G6 | Right on the simulator: idle CPU 0.6–0.8 %, no false hang after the background. |
+| G7 | Right: shaking the phone asked for no permission. |
+| G8 | Open: no MetricKit payload arrived within 2 minutes after a crash. Crashes still come from systemCrashLogs. |
+| G9, G15 | Not measured yet (step 6). |
+| G10 | Right: simulator crash reports land in `~/Library/Logs/DiagnosticReports`, written up to 18 s after the crash. |
+| G11 | Right: `passcodeRequired` (and `unlockedSinceBoot`); `bundleIdentifier`, `name`, `version`, `bundleVersion`; `result.files[].relativePath`. |
+| G12 | Right. |
+| G13 | Right: `properties.state.name` is the device's name. |
+| G14 | Phone: the console shows devicectl's own lines and a Swift fatal error; `Logger` lines do not appear there (0 of 13). |
 
 ## 4. Guesses (each checked in docs/TESTING-ON-MAC.md)
 
@@ -205,3 +219,22 @@ The ten "measure first" unknowns of the brief are G1–G8, G14 and G15; G9–G13
 | G13 | `properties.state.name` in `devicectl list devices` is the device's name (as `deviceProperties.name` was). | A phone shows an odd name; reachability is not affected. | step 12 |
 | G14 | `process launch --console` (and `simctl launch --console-pty`) shows the app's `print` output; whether `Logger` output appears there too is open. | Nothing breaks: logs come from OSLogStore (G5); `console.log` holds whatever the console shows. | steps 5, 15 |
 | G15 | Reading a sandboxed Mac app's container from the server's process may bring up a macOS privacy prompt. | The first pull fails until the user allows it once; doctor's container item says so. | step 6 |
+
+## 5. Known limits
+
+Found on the phone or in review; each is open, not hidden.
+
+- **A mark's two pictures are taken separately.** For a mark sent from the Mac, the app takes its
+  snapshot when it reads the command, and `devicectl capture screenshot` runs at the same time. On
+  the phone they were 1.1 s apart (snapshot 12:50:55.473Z, capture 12:50:56.536Z) and showed
+  different scroll positions of the same list. The mark answer does not show that gap yet.
+- **An empty accessibility tree is not a measurement.** Without VoiceOver or Accessibility
+  Inspector a SwiftUI screen has no accessibility elements, so `find` in that tree finds nothing.
+  The answer says "accessibility tree empty (missing: …)" instead of a count.
+- **Memory is sampled every 2 s,** so a shorter peak can be missed.
+- **Fieldbook costs a little.** Idle CPU was 0.6–0.8 % on the simulator. A snapshot takes 74–131 ms
+  in the app, and its tree walks run on the main thread.
+- **A comparison trusts its inputs.** `compare` assumes both sessions ran the same steps on the
+  same kind of device. It shows both numbers for every rule but does not check that.
+- **Colours are compared as stored.** `scripts/pixel-diff.ts` does no colour management; a Display P3
+  capture and an sRGB rendering differ a little in saturated colours.

@@ -18,6 +18,10 @@ steps — before and after a change — can be compared with clear pass and fail
 
 **Platforms.** iOS 26+ and macOS 26+ (AppKit). Mac Catalyst is not supported.
 
+**Tested on** a real iPhone 12 Pro (iOS 27.0.1), an iPhone 17 Pro simulator (iOS 26.5) and a Mac with
+Xcode 27.2, in November 2026. What was measured, and what is still open, is in docs/DESIGN.md
+(sections 3 and 5); every test run is in docs/TEST-LOG.md.
+
 **What it is not.** Not a tool for other people's apps, and not a planning method. It observes your
 own Debug builds, from source, with the tester's consent. It never installs, uninstalls, erases or
 reboots anything, never changes device settings, and has no upload feature. See docs/SAFETY.md.
@@ -36,7 +40,7 @@ The app and the Mac never talk over the network. The app writes a *mailbox* fold
 container; the Mac copies it out and drops command files in, then signals the app with a Darwin
 notification (a system-wide signal with a name and no data).
 
-## Quick start (5 minutes, on the Mac)
+## Quick start (on the Mac)
 
 1. **The server.**
 
@@ -44,11 +48,15 @@ notification (a system-wide signal with a name and no data).
    cd server && npm ci && npm test
    ```
 
-   Then add it to your MCP client configuration:
+   Then register it with your MCP client as a stdio server. Most clients read a configuration
+   like this one:
 
-   ```bash
-   # Example: add to your MCP client
-   mcp add fieldbook -- node /path/to/fieldbook/server/src/main.ts
+   ```json
+   {
+     "mcpServers": {
+       "fieldbook": { "command": "node", "args": ["/absolute/path/to/fieldbook/server/src/main.ts"] }
+     }
+   }
    ```
 
 2. **The kit in your app.** Add `kit/` as a local Swift package and link `FieldbookKit` in the
