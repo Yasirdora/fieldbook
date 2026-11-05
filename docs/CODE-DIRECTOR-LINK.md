@@ -1,8 +1,8 @@
 # The link to Code Director
 
-Every code change in the studio goes through Code Director (`cdir`): a lock from user specifications,
-the change inside that fence, and a Change Report from measured evidence. Fieldbook stays a separate
-tool. This page designs **one clean link**: a Code Director report can cite a Fieldbook recording as
+Code Director (`cdir`) is a separate tool for AI-assisted code changes: a lock from user
+specifications, the change inside that fence, and a Change Report from measured evidence. Fieldbook
+works without it. This page designs **one optional link**: a Code Director report can cite a Fieldbook recording as
 evidence. Fieldbook's side is built (`evidence.json`). Code Director's side is a proposal that can be built under a lock. Nothing in the Code Director repository was changed.
 
 Everything below about Code Director was read in https://github.com/Yasirdora/CodeDirector at commit

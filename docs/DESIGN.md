@@ -127,7 +127,8 @@ Every claim below carries one tag:
     written to a hidden temporary file and renamed. Snapshot folders are written hidden and renamed
     whole, so the Mac never copies half a snapshot. Events are appended; a reader ignores a last line
     without a line break.
-22. **Text is fingerprinted, not stored.** `{length, sha256_8}` by default; full text only with the
+22. **Text in the trees is fingerprinted, not stored.** `{length, sha256_8}` by default (screenshots
+    are pixels of the whole screen and are not redacted); full text only with the
     launch argument `-FieldbookText full`. `find` and `compare` still work on fingerprints: the server
     hashes the query.
 23. **Tree walks stop at 5000 nodes** and say so (`truncated`). One generic walk (`TreeWalk`) serves

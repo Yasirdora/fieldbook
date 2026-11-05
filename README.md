@@ -14,7 +14,8 @@ records:
 
 Each recording is filed under the build and the change that made it. Two recordings of the same
 steps — before and after a change — can be compared with clear pass and fail rules. A small
-`evidence.json` lets a Code Director Change Report cite the result.
+`evidence.json` lets a [Code Director](https://github.com/Yasirdora/CodeDirector) Change Report cite
+the result. That link is optional: Fieldbook works on its own.
 
 **Platforms.** iOS 26+ and macOS 26+ (AppKit). Mac Catalyst is not supported.
 
@@ -99,7 +100,7 @@ Sessions are stored in `$FIELDBOOK_HOME/sessions/<id>/` (default `~/Library/Appl
 | `timeline` | Short text: `00:12.4 mark 3 "pin on the wrong page" (screen captured, tree 412 nodes)`. System log lines below error level are left out unless asked for. |
 | `find` | Elements by id, label, type, text or text hash; "is A inside B"; distance in points. |
 | `compare` | Two sessions; each rule shows both numbers and pass, warn, fail or unchecked. |
-| `evidence` | Writes `evidence.json` for Code Director. |
+| `evidence` | Writes `evidence.json` for [Code Director](https://github.com/Yasirdora/CodeDirector). |
 
 Every value carries an evidence label: **measured**, **captured** (a real screenshot), **rendered**
 (drawn by the app), **reported** (the app's own words) or **missing** (with the reason).
